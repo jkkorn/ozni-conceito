@@ -132,6 +132,12 @@
   .faq{margin-top:var(--s4);max-width:var(--measure);display:flex;flex-direction:column;gap:var(--s3)}
   .qa .q{font-weight:600;color:var(--ink);font-size:17px;margin:0}
   .qa .a{color:var(--dim);margin-top:6px;font-size:15.5px;line-height:1.6}
+
+  .risks{margin-top:var(--s4);display:flex;flex-direction:column;gap:var(--s3);max-width:var(--measure)}
+  .risk{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:var(--s3)}
+  .r-q{font-weight:600;color:var(--ink);font-size:16.5px;margin:0}
+  .r-a{color:var(--dim);font-size:15px;line-height:1.6;margin-top:8px;padding-left:22px;position:relative}
+  .r-a::before{content:"\2192";position:absolute;left:0;color:var(--accent);font-weight:700}
 </style>
 </head>
 <body>
@@ -301,6 +307,25 @@
     </ul>
   </section>
 
+  <section>
+    <p class="kicker" data-i18n="risk_k">Onde isto pode falhar</p>
+    <h2 data-i18n="risk_h">Atacamos a própria ideia. Aqui estão os riscos reais.</h2>
+    <p class="prose" data-i18n="risk_p">Um sistema de segurança honesto começa pelos próprios pontos fracos. Estes são os que mais nos preocupam, e o que fazemos contra cada um.</p>
+    <div class="risks">
+      <div class="risk"><p class="r-q" data-i18n="r1q">Fogos podem disparar alarme falso, e alguém poderia provocar isso de propósito.</p>
+        <p class="r-a" data-i18n="r1a">Nada vira alerta à polícia sem corroboração de 2 ou mais aparelhos ou confirmação humana, e a polícia nunca é acionada de forma automática. Antes de instalar, gravamos uma noite de jogo no Rio para medir o falso positivo de verdade.</p></div>
+      <div class="risk"><p class="r-q" data-i18n="r2q">Um aparelho pode parar de escutar sem ninguém perceber.</p>
+        <p class="r-a" data-i18n="r2a">Uma camada de segurança que não dá para verificar não vale nada. Por isso cada aparelho armado envia um sinal de vida; se ficar em silêncio, a equipe é avisada. Cada local tem um responsável e um modo de teste.</p></div>
+      <div class="risk"><p class="r-q" data-i18n="r3q">Um atacante poderia sondar o local para descobrir a reação da segurança.</p>
+        <p class="r-a" data-i18n="r3a">Os alertas vão só para uma lista fechada (segurança, polícia, contatos do local), nunca um feed público. O protocolo de resposta é da equipe e não fica exposto.</p></div>
+      <div class="risk"><p class="r-q" data-i18n="r4q">Durante um serviço, um guarda presente pode reagir mais rápido que qualquer sistema.</p>
+        <p class="r-a" data-i18n="r4a">O Ozni não substitui a equipe de segurança. O valor está nos momentos em que ninguém consegue agir, e como uma confirmação a mais quando tudo acontece ao mesmo tempo.</p></div>
+      <div class="risk"><p class="r-q" data-i18n="r5q">Um alarme falso que mobiliza a polícia é o pior erro possível.</p>
+        <p class="r-a" data-i18n="r5a">É a razão de o sistema nunca acionar a polícia sozinho. Alta confiança alerta a segurança da comunidade; confiança baixa pede a confirmação de uma pessoa, em um toque.</p></div>
+    </div>
+    <p class="prose" style="margin-top:var(--s3)" data-i18n="risk_end">É por isso que ainda não escrevemos uma linha de código de produto. Primeiro provamos que funciona no Rio e ouvimos quem entende de segurança de verdade. É aí que entra você.</p>
+  </section>
+
   <section style="border-top:none">
     <div class="cta">
       <p class="kicker" data-i18n="cta_k">O que eu preciso de você</p>
@@ -415,7 +440,7 @@ function renderSplit(){
   if(w)w.innerHTML=svg(VIZ.fw.wave,VIZ.fw.markers,'wide');
   if(g)g.innerHTML=svg(VIZ.gun.wave,VIZ.gun.markers,'gun');
 }
-var EN={ qa_k:'Device reality', qa_h:'The hard questions, answered.', qa1q:'Can you trust detection to an ordinary phone?', qa1a:'The microphone hears the shot without trouble. A gunshot is one of the loudest, sharpest sounds there is. The challenge is not hearing it; it is keeping the app listening without the phone OS killing the process, and using the raw audio instead of the sound already cleaned for speech. Both are solvable and part of the build.', qa2q:'What if a device stops listening and nobody notices?', qa2a:'That is the biggest operational risk, and the system is designed against it: every armed device sends a heartbeat. If it goes silent, the security team is alerted. A dead device never fails quietly.', qa3q:'Does the sound distort when the shot is very close?', qa3a:'It does. A close shot saturates the phone microphone. But that lowers confidence in the weapon class, not detection of the shot itself. That is why we state only the class (handgun / rifle / shotgun) with a confidence level, never make or model.', qa4q:'iPhone or Android?', qa4a:'Android is the main sensor: cheaper, common in Brazil, and more permissive for continuous listening. iPhone works better for receiving alerts. Detection is validated on the actual device models used at each site.',
+var EN={ risk_k:'Where this can fail', risk_h:'We attacked our own idea. Here are the real risks.', risk_p:'An honest security system starts with its own weak points. These are the ones that worry us most, and what we do about each.', r1q:'Fireworks can set off a false alarm, and someone could trigger that on purpose.', r1a:'Nothing becomes a police alert without corroboration from 2 or more devices or human confirmation, and police are never dispatched automatically. Before any install, we record a match night in Rio to measure the real false-positive rate.', r2q:'A device could stop listening and nobody notices.', r2a:'A security layer you cannot verify is worthless. So every armed device sends a heartbeat; if it goes silent, the team is alerted. Each site has an owner and a test mode.', r3q:'An attacker could probe the site to learn how security reacts.', r3a:'Alerts go only to a closed list (security, police, site contacts), never a public feed. The response protocol belongs to the team and is not exposed.', r4q:'During a service, a guard on site can react faster than any system.', r4a:'Ozni does not replace the security team. Its value is in the moments when no one can act, and as one more confirmation when everything happens at once.', r5q:'A false alarm that mobilizes police is the worst possible error.', r5a:'That is why the system never dispatches police on its own. High confidence alerts community security; low confidence asks one person to confirm, in a single tap.', risk_end:'That is why we have not written a line of product code yet. First we prove it works in Rio and listen to people who really understand security. That is where you come in.', qa_k:'Device reality', qa_h:'The hard questions, answered.', qa1q:'Can you trust detection to an ordinary phone?', qa1a:'The microphone hears the shot without trouble. A gunshot is one of the loudest, sharpest sounds there is. The challenge is not hearing it; it is keeping the app listening without the phone OS killing the process, and using the raw audio instead of the sound already cleaned for speech. Both are solvable and part of the build.', qa2q:'What if a device stops listening and nobody notices?', qa2a:'That is the biggest operational risk, and the system is designed against it: every armed device sends a heartbeat. If it goes silent, the security team is alerted. A dead device never fails quietly.', qa3q:'Does the sound distort when the shot is very close?', qa3a:'It does. A close shot saturates the phone microphone. But that lowers confidence in the weapon class, not detection of the shot itself. That is why we state only the class (handgun / rifle / shotgun) with a confidence level, never make or model.', qa4q:'iPhone or Android?', qa4a:'Android is the main sensor: cheaper, common in Brazil, and more permissive for continuous listening. iPhone works better for receiving alerts. Detection is validated on the actual device models used at each site.',
  meaning:'from the Hebrew ozen, “ear”',
  status:'Concept + detection prototype in validation',
  h1:'The alert that fires <em>when no one can call</em>.',
