@@ -117,6 +117,17 @@
   .btn{display:inline-block;font-weight:600;font-size:15.5px;padding:13px 26px;border-radius:var(--r);text-decoration:none;background:var(--accent);color:#1A1206}
   footer{padding:var(--s4) 0 var(--s5);color:var(--faint);font-size:13.5px;border-top:1px solid var(--line);margin-top:var(--s4);display:flex;justify-content:space-between;gap:var(--s2);flex-wrap:wrap}
   @media(max-width:760px){.waves{grid-template-columns:1fr}.pipe{flex-direction:column}.stage,.stage:first-child,.stage:last-child{border-radius:var(--r)}.arrow{transform:rotate(90deg);padding:6px 0}}
+
+  .split{display:grid;grid-template-columns:1fr 1fr;gap:var(--s3);margin-top:var(--s4)}
+  .scol{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:var(--s3)}
+  .scol-h{font:700 13px var(--mono);letter-spacing:.04em;margin-bottom:12px}
+  .scol-h.narrow{color:var(--danger)}.scol-h.wide{color:var(--ok)}
+  .wf svg{display:block;width:100%;height:auto;background:#05080C;border-radius:8px}
+  .scol-r{margin-top:12px;font-size:14px;font-weight:600;line-height:1.45}
+  .scol-r.bad{color:var(--danger)}.scol-r.good{color:var(--ok)}.scol-r.real{color:var(--accent)}
+  .gunrow{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:var(--s3);margin-top:var(--s3)}
+  .gunrow-lab{font:700 13px var(--mono);color:var(--dim);letter-spacing:.04em;margin-bottom:12px}
+  @media(max-width:760px){.split{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
@@ -220,27 +231,32 @@
 
   <section>
     <p class="kicker" data-i18n="fw_k">Por que não confunde com fogos</p>
-    <h2 data-i18n="fw_h">A prova: 70.000 alertas falsos por semana viram zero.</h2>
-    <p class="prose" data-i18n="fw_p1">No Rio, fogos estouram toda semana: gol de futebol, festa, sinalização. Aqui está, passo a passo, o erro que derruba sistemas como este, e a correção. Toque em rodar e veja a mesma rua de áudio analisada de duas formas.</p>
-    <div class="method">
-      <div class="mhead">
-        <span class="mmode" id="m-mode" data-i18n="m_idle">pronto</span>
-        <div class="mcounters">
-          <span class="mc false"><span data-i18n="m_false">alarmes falsos</span><b id="m-false">0</b></span>
-          <span class="mc true"><span data-i18n="m_true">tiros reais</span><b id="m-true">0</b></span>
-        </div>
-        <button class="mbtn" id="m-run" data-i18n="m_run">▶ Rodar simulação</button>
+    <h2 data-i18n="fw_h">A diferença é a contagem: um tiro é um estouro, fogos são vários.</h2>
+    <p class="prose" data-i18n="fw_p1">Um tiro e um fogo de artifício têm volume parecido. O que os separa é quantos estouros existem dentro do mesmo barulho. A mesma gravação de fogos, analisada de duas formas:</p>
+    <div class="split">
+      <div class="scol">
+        <div class="scol-h narrow" data-i18n="sp_nh">Janela estreita (ingênua)</div>
+        <div class="wf" id="wf-narrow"></div>
+        <div class="scol-r bad" data-i18n="sp_nr">Marca cada estalo → 6 alarmes “TIRO?”</div>
       </div>
-      <canvas id="cv-method" height="150"></canvas>
-      <p class="mcap" id="m-cap" data-i18n="m_cap0">Uma rua de áudio: 3 sequências de fogos (cinza) e 1 tiro real (laranja). Toque em rodar.</p>
+      <div class="scol">
+        <div class="scol-h wide" data-i18n="sp_wh">Janela larga (Ozni)</div>
+        <div class="wf" id="wf-wide"></div>
+        <div class="scol-r good" data-i18n="sp_wr">Vê o conjunto → 1 evento = FOGOS (ignorado)</div>
+      </div>
+    </div>
+    <div class="gunrow">
+      <div class="gunrow-lab" data-i18n="sp_gl">E um tiro de verdade?</div>
+      <div class="wf" id="wf-gun"></div>
+      <div class="scol-r real" data-i18n="sp_gr">Um estouro sozinho = TIRO. Alerta real, sempre pego.</div>
     </div>
     <div class="bignum">
-      <div><span class="n before" id="bn-before">70.000</span><span class="lab" data-i18n="bn_before">janela estreita · falsos/semana</span></div>
+      <div><span class="n before">70.000</span><span class="lab" data-i18n="bn_before">janela estreita · falsos/semana</span></div>
       <span class="arw">→</span>
-      <div><span class="n after" id="bn-after">0</span><span class="lab" data-i18n="bn_after">janela larga · falsos/semana</span></div>
+      <div><span class="n after">0</span><span class="lab" data-i18n="bn_after">janela larga · falsos/semana</span></div>
     </div>
-    <p class="prose" style="margin-top:var(--s4)" data-i18n-html="fw_p2"><strong>O que muda entre os dois:</strong> a janela estreita olha só o instante do estouro, então cada estalo de um fogo parece um tiro separado e o alarme dispara dezenas de vezes. A janela larga olha a vizinhança inteira e conta os sub-impulsos: "isto é um estouro sozinho, ou parte de uma sequência de estalos?". Um estouro sozinho é tiro. Vários estalos são fogos.</p>
-    <p class="prose" style="margin-top:var(--s2)" data-i18n-html="fw_p3"><strong>Honestidade:</strong> o número 70.000 vem do nosso teste com sinais sintéticos, e o caso genuinamente difícil é um tiro <em>durante</em> uma queima de fogos. Não escondemos isso. É exatamente o que as gravações reais (uma noite de jogo + uma sessão de tiro ao alvo) vão medir antes de qualquer instalação.</p>
+    <p class="prose" style="margin-top:var(--s3)" data-i18n-html="fw_sim"><strong>De onde vem o 70.000:</strong> de uma simulação local rodada no computador, com sinais de áudio sintéticos, não tiros reais. Ela mede se o método funciona, não o produto pronto. O número de verdade só virá das gravações de campo no Rio: uma noite de jogo (fogos reais) e uma sessão de tiro ao alvo.</p>
+    <p class="prose" style="margin-top:var(--s2)" data-i18n-html="fw_hard"><strong>O caso difícil, sem esconder:</strong> um tiro disparado <em>durante</em> uma queima de fogos. É exatamente isso que as gravações reais vão medir antes de qualquer instalação.</p>
   </section>
 
   <section>
@@ -415,12 +431,30 @@ function setupMethod(){
 function initViz(){
   setupWave('cv-gun','play-gun',VIZ.gun,'#D96C5F','vt-gun','gun');
   setupWave('cv-fw','play-fw',VIZ.fw,'#7FB48A','vt-fw','fw');
-  setupMethod();
+  renderSplit();
 }
 var _rt;
 window.addEventListener('load',initViz);
 window.addEventListener('resize',function(){ clearTimeout(_rt); _rt=setTimeout(initViz,250); });
 
+
+function renderSplit(){
+  function area(wave,W,H){var mid=H/2,n=wave.length,st=W/(n-1),d="M0 "+mid.toFixed(1),i;
+    for(i=0;i<n;i++) d+=" L"+(i*st).toFixed(1)+" "+(mid-wave[i]*(mid-5)).toFixed(1);
+    for(i=n-1;i>=0;i--) d+=" L"+(i*st).toFixed(1)+" "+(mid+wave[i]*(mid-5)).toFixed(1);
+    return d+" Z";}
+  function svg(wave,markers,mode){var W=600,H=110,s='<svg viewBox="0 0 '+W+' '+H+'" preserveAspectRatio="none">';
+    var fill=mode==='gun'?'rgba(232,163,61,.5)':'rgba(155,163,173,.45)';
+    s+='<path d="'+area(wave,W,H)+'" fill="'+fill+'"/>';
+    if(mode==='narrow'){markers.forEach(function(m){var x=m*W;s+='<rect x="'+(x-7)+'" y="6" width="14" height="'+(H-12)+'" fill="none" stroke="#D96C5F" stroke-width="2"/>';});}
+    else{var lo=Math.min.apply(null,markers),hi=Math.max.apply(null,markers);var x0=lo*W-(mode==='gun'?22:12),x1=hi*W+(mode==='gun'?22:12);var col=mode==='gun'?'#E8A33D':'#7FB48A';
+      s+='<rect x="'+x0+'" y="6" width="'+(x1-x0)+'" height="'+(H-12)+'" rx="4" fill="none" stroke="'+col+'" stroke-width="2.5"/>';}
+    return s+'</svg>';}
+  var n=document.getElementById('wf-narrow'),w=document.getElementById('wf-wide'),g=document.getElementById('wf-gun');
+  if(n)n.innerHTML=svg(VIZ.fw.wave,VIZ.fw.markers,'narrow');
+  if(w)w.innerHTML=svg(VIZ.fw.wave,VIZ.fw.markers,'wide');
+  if(g)g.innerHTML=svg(VIZ.gun.wave,VIZ.gun.markers,'gun');
+}
 var EN={
  meaning:'from the Hebrew ozen, “ear”',
  status:'Concept + detection prototype in validation',
@@ -444,8 +478,8 @@ var EN={
  st3_h:'Several devices agree', st3_p:'If 2+ devices at the same site detect the event within seconds, confidence rises and the alert is automatic. A lone pop on a single mic does not become a high alarm.', st3_c:'server side · 15 s window',
  tier_h:'The tiered alert',
  tier_p:'<strong>High confidence</strong>, corroborated by several devices: automatic alert to the security team. <strong>Low confidence</strong>: a designated person gets a CONFIRM / DISMISS prompt, one tap. <strong>Police contacts never get a fully automatic alert.</strong> It takes corroboration or human confirmation. This is the protection against the worst possible error: sending police because of a firework.',
- fw_k:'Why it does not confuse fireworks', fw_h:'The proof: 70,000 false alerts a week become zero.',
- fw_p1:'In Rio, fireworks go off every week: a football goal, a party, signaling. Here, step by step, is the error that sinks systems like this, and the fix. Tap run and watch the same street of audio analyzed two ways.',
+ fw_k:'Why it does not confuse fireworks', fw_h:'The difference is the count: a gunshot is one bang, fireworks are many.', sp_nh:'Narrow window (naive)', sp_nr:'Flags every pop → 6 “GUNSHOT?” alarms', sp_wh:'Wide window (Ozni)', sp_wr:'Sees the group → 1 event = FIREWORKS (ignored)', sp_gl:'And a real gunshot?', sp_gr:'A lone bang = GUNSHOT. A real alert, always caught.', fw_sim:'<strong>Where the 70,000 comes from:</strong> a local simulation run on a computer with synthetic audio signals, not real gunshots. It measures whether the method works, not the finished product. The real number will only come from field recordings in Rio: a match night (real fireworks) and a shooting-range session.', fw_hard:'<strong>The hard case, not hidden:</strong> a gunshot fired <em>during</em> a fireworks display. That is exactly what the real recordings will measure before any install.',
+ fw_p1:'A gunshot and a firework are about equally loud. What separates them is how many bangs live inside the same noise. The same fireworks recording, analyzed two ways:',
  m_idle:'ready', m_false:'false alerts', m_true:'real gunshots', m_run:'▶ Run simulation',
  m_cap0:'A street of audio: 3 firework bursts (gray) and 1 real gunshot (orange). Tap run.',
  bn_before:'narrow window · false/week', bn_after:'wide window · false/week',
