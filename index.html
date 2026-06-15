@@ -369,65 +369,6 @@ function setupWave(cvId,playId,data,color,vtId,key){
   });
 }
 
-function setupMethod(){
-  var cv=document.getElementById('cv-method'); fitCanvas(cv,150);
-  var ctx=cv.getContext('2d'), T=VIZ.timeline, pops=T.pops, gunX=0.36;
-  var groups=T.events.map(function(e){return {type:e.type,x:e.x,pops:e.type==='fireworks'?e.pops:1};});
-  function bg(){ var w=cv._w,h=cv._h,mid=h/2; ctx.clearRect(0,0,w,h);
-    ctx.fillStyle='#3A434E'; pops.forEach(function(x){ ctx.fillRect(x*w-1,mid-22,2,44); });
-    ctx.fillStyle='#E8A33D'; ctx.fillRect(gunX*w-2,mid-46,4,92);
-    return {w:w,h:h,mid:mid};
-  }
-  bg();
-  var run=document.getElementById('m-run'),mode=document.getElementById('m-mode'),
-      capEl=document.getElementById('m-cap'),fEl=document.getElementById('m-false'),tEl=document.getElementById('m-true');
-  var running=false,started=false,mw=0.02;
-  function L(){ return document.documentElement.lang==='en'?'en':'pt'; }
-  var TX={
-    narrow:{pt:'JANELA ESTREITA (ingênua)',en:'NARROW WINDOW (naive)'},
-    wide:{pt:'JANELA LARGA (Ozni)',en:'WIDE WINDOW (Ozni)'},
-    capN:{pt:'Janela estreita: cada estalo vira um "tiro?". O contador de falsos dispara.',en:'Narrow window: each pop reads as a "gunshot?". The false counter climbs.'},
-    capP:{pt:'No teste real, isso projeta cerca de 70.000 alarmes falsos por semana.',en:'In the real test, this projects to about 70,000 false alerts per week.'},
-    capW:{pt:'Janela larga: conta os sub-impulsos. Sequência de estalos = FOGOS (ignorado). Estouro sozinho = TIRO.',en:'Wide window: it counts sub-impulses. A crackle = FIREWORKS (ignored). A lone bang = GUNSHOT.'},
-    capD:{pt:'Mesma rua de áudio. Zero alarmes falsos, e o tiro real continua sendo pego.',en:'Same audio street. Zero false alerts, and the real gunshot is still caught.'}
-  };
-  function sweep(dur,onframe,done){ var t0=null;
-    function fr(ts){ if(!t0)t0=ts; var p=Math.min(1,(ts-t0)/dur); var d=bg();
-      var cx=p*d.w, ww=mw*d.w; ctx.strokeStyle='rgba(234,230,222,.55)'; ctx.lineWidth=1.5; ctx.strokeRect(cx-ww/2,6,ww,d.h-12);
-      onframe(p,d); if(p<1) requestAnimationFrame(fr); else done();
-    } requestAnimationFrame(fr);
-  }
-  function go(){
-    if(running) return; running=true; fEl.textContent='0'; tEl.textContent='0';
-    document.getElementById('bn-after').style.opacity=.2; document.getElementById('bn-before').textContent='0';
-    mode.textContent=TX.narrow[L()]; capEl.innerHTML=TX.capN[L()]; mw=0.02;
-    var fc=0,tc=0,hf={},hg=false;
-    sweep(2600,function(p,d){
-      pops.forEach(function(x,i){ if(!hf[i] && Math.abs(x-p)<0.012){ hf[i]=1; fc++; fEl.textContent=fc;
-        ctx.fillStyle='#D96C5F'; ctx.fillRect(x*d.w-2,d.mid-26,4,52);} });
-      if(!hg && Math.abs(gunX-p)<0.012){ hg=true; tc++; tEl.textContent=tc; }
-    },function(){
-      capEl.innerHTML='<b>'+TX.capP[L()]+'</b>';
-      var bn=document.getElementById('bn-before'),v=0;
-      var iv=setInterval(function(){ v+=3500; if(v>=70000){v=70000;clearInterval(iv);setTimeout(phase2,800);} bn.textContent=v.toLocaleString(L()==='en'?'en-US':'pt-BR'); },40);
-    });
-    function phase2(){ mode.textContent=TX.wide[L()]; capEl.innerHTML=TX.capW[L()]; mw=0.12; var cl={},tc2=0;
-      sweep(2800,function(p,d){
-        groups.forEach(function(g,gi){ if(!cl[gi] && Math.abs(g.x-p)<0.02){ cl[gi]=1; var px=g.x*d.w;
-          if(g.type==='fireworks'){ ctx.fillStyle='rgba(127,180,138,.18)'; ctx.fillRect(px-0.06*d.w,8,0.12*d.w,d.h-16);
-            ctx.fillStyle='#7FB48A'; ctx.font='600 11px JetBrains Mono,monospace'; ctx.fillText(g.pops+' → FOGOS',px-30,d.h-3); }
-          else { ctx.fillStyle='#E8A33D'; ctx.font='600 11px JetBrains Mono,monospace'; ctx.fillText('1 → TIRO',px-20,d.h-3); tc2++; tEl.textContent=tc2; }
-        }});
-      },function(){ capEl.innerHTML='<b>'+TX.capD[L()]+'</b>'; document.getElementById('bn-after').style.opacity=1; running=false; });
-    }
-  }
-  run.addEventListener('click',go);
-  if('IntersectionObserver' in window){
-    var io=new IntersectionObserver(function(es){ es.forEach(function(e){ if(e.isIntersecting && !started){ started=true; setTimeout(go,400);} }); },{threshold:.5});
-    io.observe(cv);
-  }
-}
-
 function initViz(){
   setupWave('cv-gun','play-gun',VIZ.gun,'#D96C5F','vt-gun','gun');
   setupWave('cv-fw','play-fw',VIZ.fw,'#7FB48A','vt-fw','fw');
