@@ -128,6 +128,10 @@
   .gunrow{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:var(--s3);margin-top:var(--s3)}
   .gunrow-lab{font:700 13px var(--mono);color:var(--dim);letter-spacing:.04em;margin-bottom:12px}
   @media(max-width:760px){.split{grid-template-columns:1fr}}
+
+  .faq{margin-top:var(--s4);max-width:var(--measure);display:flex;flex-direction:column;gap:var(--s3)}
+  .qa .q{font-weight:600;color:var(--ink);font-size:17px;margin:0}
+  .qa .a{color:var(--dim);margin-top:6px;font-size:15.5px;line-height:1.6}
 </style>
 </head>
 <body>
@@ -272,6 +276,21 @@
   </section>
 
   <section>
+    <p class="kicker" data-i18n="qa_k">A realidade dos aparelhos</p>
+    <h2 data-i18n="qa_h">As perguntas difíceis, respondidas.</h2>
+    <div class="faq">
+      <div class="qa"><p class="q" data-i18n="qa1q">Dá pra confiar a detecção a um celular comum?</p>
+        <p class="a" data-i18n="qa1a">O microfone capta o tiro sem dificuldade. Um disparo é um dos sons mais altos e nítidos que existem. O desafio não é ouvir; é manter o app escutando sem o sistema do celular encerrar o processo, e usar o áudio bruto em vez do som já tratado para voz. Os dois são resolvíveis e fazem parte do projeto.</p></div>
+      <div class="qa"><p class="q" data-i18n="qa2q">E se um aparelho parar de escutar sem ninguém perceber?</p>
+        <p class="a" data-i18n="qa2a">Esse é o maior risco operacional, e o sistema é desenhado contra ele: cada aparelho armado envia um sinal de vida. Se ficar em silêncio, a equipe de segurança é avisada. Um aparelho morto nunca falha calado.</p></div>
+      <div class="qa"><p class="q" data-i18n="qa3q">O som não distorce quando o tiro é muito perto?</p>
+        <p class="a" data-i18n="qa3a">Distorce. Um disparo próximo satura o microfone do celular. Mas isso reduz a confiança na classe da arma, não a detecção do tiro em si. Por isso só afirmamos a classe (pistola / fuzil / espingarda) com um nível de confiança, nunca marca ou modelo.</p></div>
+      <div class="qa"><p class="q" data-i18n="qa4q">iPhone ou Android?</p>
+        <p class="a" data-i18n="qa4a">Android é o sensor principal: mais barato, comum no Brasil e mais permissivo para escuta contínua. O iPhone funciona melhor para receber os alertas. A detecção é validada nos modelos de aparelho realmente usados em cada local.</p></div>
+    </div>
+  </section>
+
+  <section>
     <p class="kicker" data-i18n="lim_k">O que o Ozni não é</p>
     <h2 data-i18n="lim_h">Honestidade técnica.</h2>
     <ul class="no">
@@ -396,7 +415,7 @@ function renderSplit(){
   if(w)w.innerHTML=svg(VIZ.fw.wave,VIZ.fw.markers,'wide');
   if(g)g.innerHTML=svg(VIZ.gun.wave,VIZ.gun.markers,'gun');
 }
-var EN={
+var EN={ qa_k:'Device reality', qa_h:'The hard questions, answered.', qa1q:'Can you trust detection to an ordinary phone?', qa1a:'The microphone hears the shot without trouble. A gunshot is one of the loudest, sharpest sounds there is. The challenge is not hearing it; it is keeping the app listening without the phone OS killing the process, and using the raw audio instead of the sound already cleaned for speech. Both are solvable and part of the build.', qa2q:'What if a device stops listening and nobody notices?', qa2a:'That is the biggest operational risk, and the system is designed against it: every armed device sends a heartbeat. If it goes silent, the security team is alerted. A dead device never fails quietly.', qa3q:'Does the sound distort when the shot is very close?', qa3a:'It does. A close shot saturates the phone microphone. But that lowers confidence in the weapon class, not detection of the shot itself. That is why we state only the class (handgun / rifle / shotgun) with a confidence level, never make or model.', qa4q:'iPhone or Android?', qa4a:'Android is the main sensor: cheaper, common in Brazil, and more permissive for continuous listening. iPhone works better for receiving alerts. Detection is validated on the actual device models used at each site.',
  meaning:'from the Hebrew ozen, “ear”',
  status:'Concept + detection prototype in validation',
  h1:'The alert that fires <em>when no one can call</em>.',
