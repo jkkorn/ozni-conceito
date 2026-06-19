@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Ozni — Gravador de campo</title>
+<style>
+  :root{
+    --bg:#0f1115; --card:#1a1d24; --ink:#f2f4f8; --muted:#9aa3b2;
+    --accent:#3b82f6; --danger:#ef4444; --ok:#22c55e; --amber:#f59e0b; --line:#2a2e38;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+    background:var(--bg);color:var(--ink);line-height:1.5;-webkit-text-size-adjust:100%}
+  .wrap{max-width:560px;margin:0 auto;padding:16px 16px 60px}
+  header{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;padding:8px 0 14px}
+  h1{font-size:18px;margin:0;font-weight:700;letter-spacing:-.02em}
+  .sub{color:var(--muted);font-size:13px;margin:3px 0 0}
+  .toggles{display:flex;flex-direction:column;gap:6px;flex-shrink:0}
+  .seg{display:flex;gap:4px}
+  .seg button{background:var(--card);border:1px solid var(--line);color:var(--muted);
+    border-radius:7px;padding:5px 10px;font-size:13px;font-weight:600;cursor:pointer}
+  .seg button.on{color:var(--ink);border-color:var(--accent)}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin:12px 0}
+  .card h2{font-size:14px;margin:0 0 10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+  ul.rules{margin:0;padding-left:18px}
+  ul.rules li{margin:5px 0;font-size:14px}
+  ul.rules b{color:var(--amber)}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th,td{text-align:left;padding:6px 4px;border-bottom:1px solid var(--line)}
+  th{color:var(--muted);font-weight:600}
+  td.n,th.n{text-align:right;font-variant-numeric:tabular-nums;font-weight:600}
+  .label-row{display:flex;gap:8px;margin-bottom:10px}
+  .label-row input{flex:1;background:#11141a;border:1px solid var(--line);color:var(--ink);
+    border-radius:10px;padding:11px 12px;font-size:16px}
+  .chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px}
+  .chips button{background:#11141a;border:1px solid var(--line);color:var(--muted);
+    border-radius:20px;padding:6px 12px;font-size:13px;cursor:pointer}
+  .chips button:active{border-color:var(--accent);color:var(--ink)}
+  .meter{height:14px;background:#11141a;border-radius:8px;overflow:hidden;border:1px solid var(--line)}
+  .meter > div{height:100%;width:0;background:var(--ok);transition:width .06s linear}
+  .meter.clip > div{background:var(--danger)}
+  .meterrow{display:flex;justify-content:space-between;font-size:12px;margin-top:5px;color:var(--muted)}
+  .clipwarn{color:var(--danger);font-weight:700;display:none}
+  .meter.clip ~ .meterrow .clipwarn{display:inline}
+  .timer{font-size:40px;font-weight:700;text-align:center;font-variant-numeric:tabular-nums;margin:14px 0 6px}
+  .recbtn{display:block;margin:0 auto;width:96px;height:96px;border-radius:50%;border:none;
+    background:var(--accent);color:#fff;font-size:15px;font-weight:700;cursor:pointer}
+  .recbtn.rec{background:var(--danger)}
+  .err{color:var(--danger);font-size:13px;margin-top:10px;text-align:center}
+  .rec{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--line)}
+  .rec .nm{flex:1;font-size:13px;word-break:break-all}
+  .rec .du{color:var(--muted);font-size:12px;font-variant-numeric:tabular-nums}
+  .rec button{background:var(--accent);border:none;color:#fff;border-radius:8px;padding:8px 12px;font-size:13px;font-weight:600;cursor:pointer}
+  .empty{color:var(--muted);font-size:13px}
+  .foot{color:var(--muted);font-size:12px;text-align:center;margin-top:18px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1 id="title"></h1>
+      <p class="sub" id="sub"></p>
+    </div>
+    <div class="toggles">
+      <div class="seg" id="modeseg">
+        <button data-mode="fogos" onclick="setMode('fogos')">🎆</button>
+        <button data-mode="tiro" onclick="setMode('tiro')">🎯</button>
+      </div>
+      <div class="seg" id="langseg">
+        <button data-lang="pt" onclick="setLang('pt')">PT</button>
+        <button data-lang="en" onclick="setLang('en')">EN</button>
+      </div>
+    </div>
+  </header>
+
+  <div class="card"><h2 id="h-rules"></h2><ul class="rules" id="rules"></ul></div>
+  <div class="card"><h2 id="h-plan"></h2><table><thead id="planhead"></thead><tbody id="planbody"></tbody></table></div>
+
+  <div class="card">
+    <h2 id="h-rec"></h2>
+    <div class="label-row"><input id="label" autocapitalize="off" autocorrect="off" spellcheck="false"></div>
+    <div class="chips" id="chips"></div>
+    <div class="meter" id="meter"><div id="meterbar"></div></div>
+    <div class="meterrow">
+      <span id="db">–∞ dB</span>
+      <span class="clipwarn" id="clipwarn"></span>
+      <span id="pk"></span>
+    </div>
+    <div class="timer" id="timer">00:00</div>
+    <button class="recbtn" id="recbtn" onclick="toggle()"></button>
+    <div class="err" id="err"></div>
+  </div>
+
+  <div class="card"><h2 id="h-list"></h2><div id="list"></div></div>
+  <p class="foot" id="foot"></p>
+</div>
+
+<script>
+const STR = {
+  title:{pt:"Ozni · Gravador de campo", en:"Ozni · Field recorder"},
+  hRules:{pt:"Regras de ouro", en:"Golden rules"},
+  hPlan:{pt:"O que gravar", en:"What to record"},
+  hRec:{pt:"Gravar", en:"Record"},
+  hList:{pt:"Gravações — toque Enviar p/ mandar pro Jonathan", en:"Recordings — tap Send to share"},
+  rec:{pt:"Gravar", en:"Record"}, stop:{pt:"Parar", en:"Stop"},
+  send:{pt:"Enviar", en:"Send"}, empty:{pt:"Nenhuma gravação ainda.", en:"No recordings yet."},
+  clip:{pt:"CLIPOU — afaste o celular", en:"CLIPPED — move phone back"},
+  peak:{pt:"pico", en:"peak"},
+  micblock:{pt:"Microfone bloqueado: ", en:"Mic blocked: "},
+  foot:{pt:"Tudo fica no seu celular. Nada é enviado sozinho. Funciona offline depois de abrir.",
+        en:"Everything stays on your phone. Nothing is sent automatically. Works offline once loaded."},
+  cols:{pt:["O quê","Distância","Quantos"], en:["What","Distance","How many"]},
+};
+const MODES = {
+  fogos:{
+    sub:{pt:"Gravando FOGOS (bombas, rojões) p/ ver se o celular separa fogos de tiro.",
+         en:"Recording FIREWORKS (bombas, rockets) to test if a phone tells them from gunfire."},
+    rules:[
+      {pt:"Grave de onde o celular ficaria: <b>janela ou sacada virada pra rua</b>.",
+       en:"Record from where the phone would sit: a <b>window/balcony facing the street</b>."},
+      {pt:"Se o medidor mostrar <b>CLIPOU</b>, <b>afaste</b> ou aponte pra outro lado.",
+       en:"If the meter shows <b>CLIPPED</b>, <b>move back</b> or aim away."},
+      {pt:"Capriche nos <b>estouros únicos</b> (uma bomba só) — é o caso mais difícil.",
+       en:"Get plenty of <b>single bangs</b> (one bomba) — that's the hard case."},
+      {pt:"<b>Fale antes</b> ('bomba, perto') e grave <b>fundo</b> sem fogos.",
+       en:"<b>Say it first</b> ('bomba, close') and record <b>background</b> with no fireworks."},
+    ],
+    chips:["fogos-perto","fogos-longe","bomba","estouro-unico","fundo"],
+    label0:"bomba",
+    plan:[
+      {w:{pt:"Bomba / estouro único", en:"Bomba / single bang"}, d:{pt:"da janela", en:"from window"}, n:"20+"},
+      {w:{pt:"Rojão / repique (vários)", en:"Rocket / crackle (many)"}, d:{pt:"da janela", en:"from window"}, n:"20+"},
+      {w:{pt:"Fogos distantes", en:"Distant fireworks"}, d:{pt:"longe", en:"far"}, n:"15+"},
+      {w:{pt:"Fundo (SEM fogos)", en:"Background (NO fireworks)"}, d:"—", n:"3+ min"},
+    ],
+  },
+  tiro:{
+    sub:{pt:"Gravando TIROS reais p/ ver se o celular separa tiro de fogos.",
+         en:"Recording real GUNSHOTS to test if a phone tells them from fireworks."},
+    rules:[
+      {pt:"Celular num apoio, <b>mic virado pra quem atira</b>, <b>fora da linha de tiro</b>.",
+       en:"Phone on a stand, <b>mic toward the shooter</b>, <b>off the line of fire</b>."},
+      {pt:"Se aparecer <b>CLIPOU</b>, <b>afaste o celular</b>. Comece a 15–25 m.",
+       en:"If it shows <b>CLIPPED</b>, <b>move the phone back</b>. Start at 15–25 m."},
+      {pt:"Perto demais NÃO é melhor — estoura.",
+       en:"Closer is NOT better — it clips."},
+      {pt:"<b>Fale antes</b> ('Taurus G2C, 25 m, 5 tiros') e grave <b>fundo</b> sem tiro.",
+       en:"<b>Say it first</b> ('Taurus G2C, 25 m, 5 shots') and record <b>background</b>."},
+    ],
+    chips:["tiro-05m","tiro-15m","tiro-25m","tiro-50m","tiro-parede","tiro-rapido","fundo-stand"],
+    label0:"tiro-25m",
+    plan:[
+      {w:{pt:"Pistola comum", en:"Common pistol"}, d:"15 m", n:"20"},
+      {w:{pt:"Pistola comum", en:"Common pistol"}, d:"25 m", n:"20"},
+      {w:{pt:"Pistola comum", en:"Common pistol"}, d:"50 m", n:"20"},
+      {w:{pt:"Outras armas (G3, Glock, .22)", en:"Other guns (G3, Glock, .22)"}, d:"~20 m", n:"10"},
+      {w:{pt:"Através de vidro/parede", en:"Through glass/wall"}, d:"~20 m", n:"15"},
+      {w:{pt:"Fundo (SEM tiro)", en:"Background (NO firing)"}, d:"—", n:"2–3 min"},
+    ],
+  },
+};
+
+let state = {lang:"pt", mode:"fogos"};
+const tt = (o)=> (o && typeof o==="object") ? o[state.lang] : o;
+const el = (id)=> document.getElementById(id);
+
+function setLang(l){ state.lang=l; render(); }
+function setMode(m){ state.mode=m; el("label").value = MODES[m].label0; render(); }
+
+function render(){
+  const m = MODES[state.mode];
+  document.documentElement.lang = state.lang==="pt" ? "pt-BR" : "en";
+  el("title").textContent = tt(STR.title);
+  el("sub").textContent = tt(m.sub);
+  el("h-rules").textContent = tt(STR.hRules);
+  el("h-plan").textContent = tt(STR.hPlan);
+  el("h-rec").textContent = tt(STR.hRec);
+  el("h-list").textContent = tt(STR.hList);
+  el("foot").textContent = tt(STR.foot);
+  el("clipwarn").textContent = tt(STR.clip);
+
+  el("rules").innerHTML = "";
+  m.rules.forEach(r=>{ const li=document.createElement("li"); li.innerHTML = tt(r); el("rules").appendChild(li); });
+
+  const cols = tt(STR.cols);
+  el("planhead").innerHTML = `<tr><th>${cols[0]}</th><th>${cols[1]}</th><th class="n">${cols[2]}</th></tr>`;
+  el("planbody").innerHTML = m.plan.map(p=>`<tr><td>${tt(p.w)}</td><td>${tt(p.d)}</td><td class="n">${tt(p.n)}</td></tr>`).join("");
+
+  el("chips").innerHTML = "";
+  m.chips.forEach(c=>{ const b=document.createElement("button"); b.textContent=c;
+    b.onclick=()=>{ el("label").value=c; }; el("chips").appendChild(b); });
+
+  document.querySelectorAll("#modeseg button").forEach(b=> b.classList.toggle("on", b.dataset.mode===state.mode));
+  document.querySelectorAll("#langseg button").forEach(b=> b.classList.toggle("on", b.dataset.lang===state.lang));
+
+  setRecUI();
+  renderList();
+}
+
+// ---- recorder ----
+let ctx, stream, source, processor, zero;
+let recording=false, buffers=[], recRate=48000, startMs=0, timerId=null, sessionPeak=0;
+let recs = [];
+
+function setRecUI(){
+  el("recbtn").textContent = recording ? tt(STR.stop) : tt(STR.rec);
+  el("recbtn").classList.toggle("rec", recording);
+}
+function toggle(){ recording ? stop() : start(); }
+
+async function start(){
+  el("err").textContent="";
+  try{
+    stream = await navigator.mediaDevices.getUserMedia({ audio:{
+      echoCancellation:false, noiseSuppression:false, autoGainControl:false, channelCount:1 }});
+  }catch(e){ el("err").textContent = tt(STR.micblock)+e.message; return; }
+  ctx = new (window.AudioContext||window.webkitAudioContext)();
+  if(ctx.state==="suspended") await ctx.resume();
+  recRate = ctx.sampleRate;
+  source = ctx.createMediaStreamSource(stream);
+  processor = ctx.createScriptProcessor(4096,1,1);
+  zero = ctx.createGain(); zero.gain.value = 0;
+  buffers=[]; sessionPeak=0;
+  processor.onaudioprocess = (e)=>{
+    const inp = e.inputBuffer.getChannelData(0);
+    buffers.push(new Float32Array(inp));
+    let pk=0,sum=0; for(let i=0;i<inp.length;i++){ const v=Math.abs(inp[i]); if(v>pk)pk=v; sum+=inp[i]*inp[i]; }
+    const rms=Math.sqrt(sum/inp.length); if(pk>sessionPeak)sessionPeak=pk;
+    const db = rms>1e-6 ? Math.round(20*Math.log10(rms)) : -120;
+    el("meterbar").style.width = Math.min(100,Math.max(0,(db+60)/60*100))+"%";
+    el("meter").classList.toggle("clip", pk>=0.99);
+    el("db").textContent = (db<=-120?"–∞":db)+" dB";
+    el("pk").textContent = tt(STR.peak)+" "+Math.round(Math.min(1,sessionPeak)*100)+"%";
+  };
+  source.connect(processor); processor.connect(zero); zero.connect(ctx.destination);
+  recording=true; startMs=Date.now(); setRecUI();
+  timerId=setInterval(()=>{ const s=Math.floor((Date.now()-startMs)/1000);
+    el("timer").textContent=String(Math.floor(s/60)).padStart(2,"0")+":"+String(s%60).padStart(2,"0"); },200);
+}
+
+function stop(){
+  recording=false; clearInterval(timerId);
+  try{ processor.disconnect(); source.disconnect(); zero.disconnect(); }catch(e){}
+  stream.getTracks().forEach(t=>t.stop());
+  const merged=flatten(buffers); const blob=encodeWAV(merged, recRate); ctx.close();
+  setRecUI();
+  const label=(el("label").value||"rec").replace(/\s+/g,"-");
+  const stamp=new Date().toISOString().replace(/[-:T]/g,"").slice(0,15);
+  recs.unshift({blob, name:`ozni_${label}_${stamp}_${recRate}hz.wav`, dur:merged.length/recRate});
+  el("meterbar").style.width="0"; el("meter").classList.remove("clip"); el("timer").textContent="00:00";
+  renderList();
+}
+
+function flatten(chunks){ let len=0; for(const c of chunks) len+=c.length;
+  const out=new Float32Array(len); let o=0; for(const c of chunks){ out.set(c,o); o+=c.length; } return out; }
+
+function encodeWAV(samples, rate){
+  const buf=new ArrayBuffer(44+samples.length*2); const v=new DataView(buf);
+  const ws=(off,s)=>{ for(let i=0;i<s.length;i++) v.setUint8(off+i, s.charCodeAt(i)); };
+  ws(0,"RIFF"); v.setUint32(4,36+samples.length*2,true); ws(8,"WAVE"); ws(12,"fmt ");
+  v.setUint32(16,16,true); v.setUint16(20,1,true); v.setUint16(22,1,true);
+  v.setUint32(24,rate,true); v.setUint32(28,rate*2,true); v.setUint16(32,2,true); v.setUint16(34,16,true);
+  ws(36,"data"); v.setUint32(40,samples.length*2,true);
+  let off=44; for(let i=0;i<samples.length;i++){ let s=Math.max(-1,Math.min(1,samples[i]));
+    v.setInt16(off, s<0?s*0x8000:s*0x7FFF, true); off+=2; }
+  return new Blob([v],{type:"audio/wav"});
+}
+
+function renderList(){
+  const list=el("list");
+  if(recs.length===0){ list.innerHTML = `<p class="empty">${tt(STR.empty)}</p>`; return; }
+  list.innerHTML="";
+  recs.forEach((r,i)=>{
+    const row=document.createElement("div"); row.className="rec";
+    row.innerHTML = `<span class="nm">${r.name}</span><span class="du">${r.dur.toFixed(1)}s</span>`;
+    const btn=document.createElement("button"); btn.textContent=tt(STR.send);
+    btn.onclick=()=>share(i); row.appendChild(btn); list.appendChild(row);
+  });
+}
+
+async function share(i){
+  const r=recs[i]; const file=new File([r.blob], r.name, {type:"audio/wav"});
+  if(navigator.canShare && navigator.canShare({files:[file]})){
+    try{ await navigator.share({files:[file], title:r.name}); return; }catch(e){ if(e.name==="AbortError")return; }
+  }
+  const a=document.createElement("a"); a.href=URL.createObjectURL(r.blob); a.download=r.name;
+  document.body.appendChild(a); a.click(); a.remove();
+}
+
+el("label").value = MODES[state.mode].label0;
+render();
+</script>
+</body>
+</html>
