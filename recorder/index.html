@@ -54,6 +54,7 @@
   .rec button{background:var(--accent);border:none;color:#fff;border-radius:8px;padding:8px 12px;font-size:13px;font-weight:600;cursor:pointer}
   .empty{color:var(--muted);font-size:13px}
   .foot{color:var(--muted);font-size:12px;text-align:center;margin-top:18px}
+  .note{color:var(--amber);font-size:12.5px;margin:10px 0 0;line-height:1.45}
 </style>
 </head>
 <body>
@@ -93,7 +94,7 @@
     <div class="err" id="err"></div>
   </div>
 
-  <div class="card"><h2 id="h-list"></h2><div id="list"></div></div>
+  <div class="card"><h2 id="h-list"></h2><div id="list"></div><p class="note" id="sendnote"></p></div>
   <p class="foot" id="foot"></p>
 </div>
 
@@ -108,6 +109,8 @@ const STR = {
   send:{pt:"Enviar", en:"Send"}, empty:{pt:"Nenhuma gravação ainda.", en:"No recordings yet."},
   clip:{pt:"CLIPOU — afaste o celular", en:"CLIPPED — move phone back"},
   peak:{pt:"pico", en:"peak"},
+  sendnote:{pt:"⚠️ Envie como ARQUIVO / Documento (ou por Drive / e-mail) — não como “áudio” do WhatsApp, senão o som perde qualidade e a gravação não serve.",
+            en:"⚠️ Send as a FILE / Document (or via Drive / email) — not as a WhatsApp “audio”, or the sound is re-compressed and the recording becomes useless."},
   micblock:{pt:"Microfone bloqueado: ", en:"Mic blocked: "},
   foot:{pt:"Tudo fica no seu celular. Nada é enviado sozinho. Funciona offline depois de abrir.",
         en:"Everything stays on your phone. Nothing is sent automatically. Works offline once loaded."},
@@ -179,6 +182,7 @@ function render(){
   el("h-rec").textContent = tt(STR.hRec);
   el("h-list").textContent = tt(STR.hList);
   el("foot").textContent = tt(STR.foot);
+  el("sendnote").textContent = tt(STR.sendnote);
   el("clipwarn").textContent = tt(STR.clip);
 
   el("rules").innerHTML = "";
