@@ -16,6 +16,7 @@
   header{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;padding:8px 0 14px}
   h1{font-size:18px;margin:0;font-weight:700;letter-spacing:-.02em}
   .sub{color:var(--muted);font-size:13px;margin:3px 0 0}
+  .ver{color:var(--muted);font-size:11px;margin:4px 0 0;font-variant-numeric:tabular-nums;opacity:.7}
   .toggles{display:flex;flex-direction:column;gap:6px;flex-shrink:0}
   .seg{display:flex;gap:4px}
   .seg button{background:var(--card);border:1px solid var(--line);color:var(--muted);
@@ -63,6 +64,7 @@
     <div>
       <h1 id="title"></h1>
       <p class="sub" id="sub"></p>
+      <p class="ver" id="ver"></p>
     </div>
     <div class="toggles">
       <div class="seg" id="modeseg">
@@ -112,6 +114,8 @@ const STR = {
   sendnote:{pt:"⚠️ Envie como ARQUIVO / Documento (ou por Drive / e-mail) — não como “áudio” do WhatsApp, senão o som perde qualidade e a gravação não serve.",
             en:"⚠️ Send as a FILE / Document (or via Drive / email) — not as a WhatsApp “audio”, or the sound is re-compressed and the recording becomes useless."},
   micblock:{pt:"Microfone bloqueado: ", en:"Mic blocked: "},
+  stall:{pt:"⚠️ Microfone travou — a tela apagou? A captura parou.", en:"⚠️ Mic stalled — did the screen sleep? Capture stopped."},
+  keepawake:{pt:"⚠️ Mantenha a tela ligada (desative o bloqueio automático) — em captura longa, a tela apagada interrompe a gravação.", en:"⚠️ Keep the screen on (disable auto-lock) — on a long capture, a sleeping screen stops the recording."},
   foot:{pt:"Tudo fica no seu celular. Nada é enviado sozinho. Funciona offline depois de abrir.",
         en:"Everything stays on your phone. Nothing is sent automatically. Works offline once loaded."},
   cols:{pt:["O quê","Distância","Quantos"], en:["What","Distance","How many"]},
@@ -165,6 +169,7 @@ const MODES = {
   },
 };
 
+const VERSION = "v1.1 · wake-lock";   // bump on every recorder change; shown at top so a stale cache is obvious
 let state = {lang:"pt", mode:"fogos"};
 const tt = (o)=> (o && typeof o==="object") ? o[state.lang] : o;
 const el = (id)=> document.getElementById(id);
@@ -176,6 +181,7 @@ function render(){
   const m = MODES[state.mode];
   document.documentElement.lang = state.lang==="pt" ? "pt-BR" : "en";
   el("title").textContent = tt(STR.title);
+  el("ver").textContent = VERSION;
   el("sub").textContent = tt(m.sub);
   el("h-rules").textContent = tt(STR.hRules);
   el("h-plan").textContent = tt(STR.hPlan);
@@ -206,7 +212,15 @@ function render(){
 // ---- recorder ----
 let ctx, stream, source, processor, zero;
 let recording=false, buffers=[], recRate=48000, startMs=0, timerId=null, sessionPeak=0;
+let capturedSamples=0, lastAudioMs=0;
+let wakeLock=null, visHandlerBound=false;
 let recs = [];
+
+async function acquireWakeLock(){
+  if(!('wakeLock' in navigator)){ el("err").textContent = tt(STR.keepawake); return; }
+  try{ wakeLock = await navigator.wakeLock.request('screen'); }
+  catch(e){ /* request() can reject if the doc isn't focused — non-fatal, keep recording */ }
+}
 
 function setRecUI(){
   el("recbtn").textContent = recording ? tt(STR.stop) : tt(STR.rec);
@@ -226,10 +240,12 @@ async function start(){
   source = ctx.createMediaStreamSource(stream);
   processor = ctx.createScriptProcessor(4096,1,1);
   zero = ctx.createGain(); zero.gain.value = 0;
-  buffers=[]; sessionPeak=0;
+  buffers=[]; sessionPeak=0; capturedSamples=0; lastAudioMs=Date.now();
   processor.onaudioprocess = (e)=>{
     const inp = e.inputBuffer.getChannelData(0);
     buffers.push(new Float32Array(inp));
+    capturedSamples += inp.length; lastAudioMs = Date.now();
+    if(el("err").textContent) el("err").textContent="";
     let pk=0,sum=0; for(let i=0;i<inp.length;i++){ const v=Math.abs(inp[i]); if(v>pk)pk=v; sum+=inp[i]*inp[i]; }
     const rms=Math.sqrt(sum/inp.length); if(pk>sessionPeak)sessionPeak=pk;
     const db = rms>1e-6 ? Math.round(20*Math.log10(rms)) : -120;
@@ -240,12 +256,18 @@ async function start(){
   };
   source.connect(processor); processor.connect(zero); zero.connect(ctx.destination);
   recording=true; startMs=Date.now(); setRecUI();
-  timerId=setInterval(()=>{ const s=Math.floor((Date.now()-startMs)/1000);
-    el("timer").textContent=String(Math.floor(s/60)).padStart(2,"0")+":"+String(s%60).padStart(2,"0"); },200);
+  acquireWakeLock();
+  if(!visHandlerBound){ visHandlerBound=true; document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='visible' && recording) acquireWakeLock(); }); }
+  ctx.onstatechange = ()=>{ if(recording && (ctx.state==='suspended'||ctx.state==='interrupted')){ ctx.resume().catch(()=>{}); } };
+  timerId=setInterval(()=>{ const s=Math.floor(capturedSamples/recRate);
+    el("timer").textContent=String(Math.floor(s/60)).padStart(2,"0")+":"+String(s%60).padStart(2,"0");
+    if(recording && Date.now()-lastAudioMs > 1500){ el("err").textContent = tt(STR.stall); }
+  },200);
 }
 
-function stop(){
+async function stop(){
   recording=false; clearInterval(timerId);
+  if(wakeLock){ try{ await wakeLock.release(); }catch(e){} wakeLock=null; }
   try{ processor.disconnect(); source.disconnect(); zero.disconnect(); }catch(e){}
   stream.getTracks().forEach(t=>t.stop());
   const merged=flatten(buffers); const blob=encodeWAV(merged, recRate); ctx.close();
@@ -253,7 +275,7 @@ function stop(){
   const label=(el("label").value||"rec").replace(/\s+/g,"-");
   const stamp=new Date().toISOString().replace(/[-:T]/g,"").slice(0,15);
   recs.unshift({blob, name:`ozni_${label}_${stamp}_${recRate}hz.wav`, dur:merged.length/recRate});
-  el("meterbar").style.width="0"; el("meter").classList.remove("clip"); el("timer").textContent="00:00";
+  el("err").textContent=""; el("meterbar").style.width="0"; el("meter").classList.remove("clip"); el("timer").textContent="00:00";
   renderList();
 }
 
