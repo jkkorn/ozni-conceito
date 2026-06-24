@@ -116,6 +116,8 @@ const STR = {
   micblock:{pt:"Microfone bloqueado: ", en:"Mic blocked: "},
   stall:{pt:"⚠️ Microfone travou — a tela apagou? A captura parou.", en:"⚠️ Mic stalled — did the screen sleep? Capture stopped."},
   keepawake:{pt:"⚠️ Mantenha a tela ligada (desative o bloqueio automático) — em captura longa, a tela apagada interrompe a gravação.", en:"⚠️ Keep the screen on (disable auto-lock) — on a long capture, a sleeping screen stops the recording."},
+  recovered:{pt:"✅ {n} gravação(ões) recuperada(s) de uma sessão interrompida — toque Enviar.", en:"✅ Recovered {n} recording(s) from an interrupted session — tap Send."},
+  quota:{pt:"⚠️ Armazenamento cheio — toque Enviar e apague gravações.", en:"⚠️ Storage full — Send then delete recordings."},
   foot:{pt:"Tudo fica no seu celular. Nada é enviado sozinho. Funciona offline depois de abrir.",
         en:"Everything stays on your phone. Nothing is sent automatically. Works offline once loaded."},
   cols:{pt:["O quê","Distância","Quantos"], en:["What","Distance","How many"]},
@@ -169,7 +171,7 @@ const MODES = {
   },
 };
 
-const VERSION = "v1.1 · wake-lock";   // bump on every recorder change; shown at top so a stale cache is obvious
+const VERSION = "v1.2 · durable";   // bump on every recorder change; shown at top so a stale cache is obvious
 let state = {lang:"pt", mode:"fogos"};
 const tt = (o)=> (o && typeof o==="object") ? o[state.lang] : o;
 const el = (id)=> document.getElementById(id);
@@ -211,10 +213,102 @@ function render(){
 
 // ---- recorder ----
 let ctx, stream, source, processor, zero;
-let recording=false, buffers=[], recRate=48000, startMs=0, timerId=null, sessionPeak=0;
+let recording=false, recRate=48000, startMs=0, timerId=null, sessionPeak=0;
 let capturedSamples=0, lastAudioMs=0;
 let wakeLock=null, visHandlerBound=false;
 let recs = [];
+
+// ---- lazy IndexedDB (guarded: never accessed at top level — Node verify shim has no indexedDB) ----
+const DB_NAME = "ozni-rec", DB_VER = 1;
+let _dbPromise = null;
+function dbReady(){
+  if(typeof indexedDB === "undefined") return Promise.resolve(null);   // Node shim / unsupported browser
+  if(_dbPromise) return _dbPromise;
+  _dbPromise = new Promise((resolve)=>{
+    let req;
+    try{ req = indexedDB.open(DB_NAME, DB_VER); }
+    catch(e){ resolve(null); return; }
+    req.onupgradeneeded = ()=>{
+      const db = req.result;
+      if(!db.objectStoreNames.contains("sessions"))   db.createObjectStore("sessions",   {keyPath:"sessionId"});
+      if(!db.objectStoreNames.contains("chunks"))     db.createObjectStore("chunks",     {keyPath:["sessionId","seq"]});
+      if(!db.objectStoreNames.contains("recordings")) db.createObjectStore("recordings", {keyPath:"id"});
+    };
+    req.onsuccess = ()=> resolve(req.result);
+    req.onerror   = ()=>{ resolve(null); };   // degrade gracefully — never throw out of here
+  });
+  return _dbPromise;
+}
+// Promise-wrap a single IDB request; resolves on success, rejects on error (caller try/catch handles quota).
+function idbReq(req){ return new Promise((res,rej)=>{ req.onsuccess=()=>res(req.result); req.onerror=()=>rej(req.error); }); }
+
+function f32ToI16(f32){ const out=new Int16Array(f32.length);
+  for(let i=0;i<f32.length;i++){ let s=Math.max(-1,Math.min(1,f32[i])); out[i]= s<0 ? s*0x8000 : s*0x7FFF; } return out; }
+
+// ---- durable session state ----
+let sessionId="", chunkSeq=0, pendingI16=[], pendingLen=0, memChunks=[];
+
+function flushPending(){
+  if(pendingLen===0) return;
+  let merged=new Int16Array(pendingLen), o=0;
+  for(const c of pendingI16){ merged.set(c,o); o+=c.length; }
+  pendingI16=[]; pendingLen=0;
+  const seq=chunkSeq++; const sid=sessionId;
+  dbReady().then(db=>{ if(!db){ memChunks.push({seq, buf:merged}); return; }   // no IDB -> retain in memory so stop() can still build the full clip
+    try{
+      const tx=db.transaction("chunks","readwrite");
+      tx.objectStore("chunks").put({sessionId:sid, seq, buf:merged});
+      tx.onerror=()=>handleIdbError(tx.error);   // quota etc.
+    }catch(e){ handleIdbError(e); }
+  });
+}
+
+function handleIdbError(e){
+  if(e && (e.name==="QuotaExceededError" || (e.message||"").indexOf("quota")>=0)){
+    el("err").textContent = tt(STR.quota);   // bilingual; prior data intact; recording continues
+  }
+  // any other IDB error: stay silent in UI (best-effort durability) — do NOT throw out of the audio path
+}
+
+// ---- WAV assembler from Int16 chunks (byte-equivalent to encodeWAV) ----
+function wavHeader(numSamples, rate){
+  const buf=new ArrayBuffer(44), v=new DataView(buf);
+  const ws=(off,s)=>{ for(let i=0;i<s.length;i++) v.setUint8(off+i, s.charCodeAt(i)); };
+  ws(0,"RIFF"); v.setUint32(4,36+numSamples*2,true); ws(8,"WAVE"); ws(12,"fmt ");
+  v.setUint32(16,16,true); v.setUint16(20,1,true); v.setUint16(22,1,true);
+  v.setUint32(24,rate,true); v.setUint32(28,rate*2,true); v.setUint16(32,2,true); v.setUint16(34,16,true);
+  ws(36,"data"); v.setUint32(40,numSamples*2,true);
+  return buf;   // ArrayBuffer
+}
+// Assemble a WAV Blob from chunk records (each {seq, buf:Int16Array}) sorted by seq.
+function chunksToWavBlob(chunkRecs, rate){
+  chunkRecs.sort((a,b)=>a.seq-b.seq);
+  let total=0; for(const c of chunkRecs) total += c.buf.length;
+  const parts=[wavHeader(total, rate)];
+  for(const c of chunkRecs) parts.push(c.buf.buffer);   // Int16 little-endian == WAV PCM byte order
+  return { blob:new Blob(parts,{type:"audio/wav"}), samples:total };
+}
+// Read all chunks for a session (returns []).
+async function readChunks(db, sid){
+  return new Promise((resolve)=>{ const out=[];
+    try{
+      const store=db.transaction("chunks","readonly").objectStore("chunks");
+      const range=IDBKeyRange.bound([sid,-Infinity],[sid,Infinity]);
+      const req=store.openCursor(range);
+      req.onsuccess=()=>{ const cur=req.result; if(cur){ out.push(cur.value); cur.continue(); } else resolve(out); };
+      req.onerror=()=>resolve(out);
+    }catch(e){ resolve(out); }
+  });
+}
+async function deleteSessionChunks(db, sid){
+  return new Promise((resolve)=>{ try{
+    const store=db.transaction("chunks","readwrite").objectStore("chunks");
+    const range=IDBKeyRange.bound([sid,-Infinity],[sid,Infinity]);
+    const req=store.openCursor(range);
+    req.onsuccess=()=>{ const cur=req.result; if(cur){ cur.delete(); cur.continue(); } else resolve(); };
+    req.onerror=()=>resolve();
+  }catch(e){ resolve(); } });
+}
 
 async function acquireWakeLock(){
   if(!('wakeLock' in navigator)){ el("err").textContent = tt(STR.keepawake); return; }
@@ -240,11 +334,20 @@ async function start(){
   source = ctx.createMediaStreamSource(stream);
   processor = ctx.createScriptProcessor(4096,1,1);
   zero = ctx.createGain(); zero.gain.value = 0;
-  buffers=[]; sessionPeak=0; capturedSamples=0; lastAudioMs=Date.now();
+  sessionPeak=0; capturedSamples=0; lastAudioMs=Date.now();
+  const label=(el("label").value||"rec").replace(/\s+/g,"-");
+  sessionId = String(Date.now())+"_"+label;
+  chunkSeq=0; pendingI16=[]; pendingLen=0; memChunks=[];
+  dbReady().then(db=>{ if(!db) return;
+    try{ db.transaction("sessions","readwrite").objectStore("sessions")
+          .put({sessionId, rate:recRate, label, ts:Date.now(), done:false}); }catch(e){}
+  });
   processor.onaudioprocess = (e)=>{
     const inp = e.inputBuffer.getChannelData(0);
-    buffers.push(new Float32Array(inp));
+    const i16 = f32ToI16(inp);
+    pendingI16.push(i16); pendingLen += i16.length;
     capturedSamples += inp.length; lastAudioMs = Date.now();
+    if(pendingLen >= recRate){ flushPending(); }   // ~1s of audio -> persist a chunk
     if(el("err").textContent) el("err").textContent="";
     let pk=0,sum=0; for(let i=0;i<inp.length;i++){ const v=Math.abs(inp[i]); if(v>pk)pk=v; sum+=inp[i]*inp[i]; }
     const rms=Math.sqrt(sum/inp.length); if(pk>sessionPeak)sessionPeak=pk;
@@ -267,16 +370,39 @@ async function start(){
 
 async function stop(){
   recording=false; clearInterval(timerId);
-  if(wakeLock){ try{ await wakeLock.release(); }catch(e){} wakeLock=null; }
   try{ processor.disconnect(); source.disconnect(); zero.disconnect(); }catch(e){}
   stream.getTracks().forEach(t=>t.stop());
-  const merged=flatten(buffers); const blob=encodeWAV(merged, recRate); ctx.close();
+  ctx.close();
+  flushPending();   // (a) flush final pending batch into chunks
   setRecUI();
+  el("err").textContent=""; el("meterbar").style.width="0"; el("meter").classList.remove("clip"); el("timer").textContent="00:00";
+
   const label=(el("label").value||"rec").replace(/\s+/g,"-");
   const stamp=new Date().toISOString().replace(/[-:T]/g,"").slice(0,15);
-  recs.unshift({blob, name:`ozni_${label}_${stamp}_${recRate}hz.wav`, dur:merged.length/recRate});
-  el("err").textContent=""; el("meterbar").style.width="0"; el("meter").classList.remove("clip"); el("timer").textContent="00:00";
-  renderList();
+  const name=`ozni_${label}_${stamp}_${recRate}hz.wav`;
+  const sid=sessionId;
+
+  const db=await dbReady();
+  if(db){
+    try{
+      const recsForSession=await readChunks(db, sid);          // (b) read chunks back in seq order
+      const {blob, samples}=chunksToWavBlob(recsForSession, recRate);
+      const rec={ id:sid, name, blob, dur:samples/recRate, rate:recRate, done:true, ts:Date.now() };
+      await idbReq(db.transaction("recordings","readwrite").objectStore("recordings").put(rec));  // (c) persist finalized
+      // (d) mark session done + delete its chunks
+      try{ db.transaction("sessions","readwrite").objectStore("sessions").put({sessionId:sid, rate:recRate, label, ts:Date.now(), done:true}); }catch(e){}
+      await deleteSessionChunks(db, sid);
+      recs.unshift({blob:rec.blob, name:rec.name, dur:rec.dur});  // in-memory list mirrors persisted
+    }catch(e){ handleIdbError(e); }
+  } else {
+    // No IDB (e.g. private mode without storage): assemble from the in-memory fallback chunks
+    // that flushPending retained, so the user still gets the FULL clip (not just the last batch).
+    const {blob, samples}=chunksToWavBlob(memChunks.slice(), recRate);
+    recs.unshift({blob, name, dur: samples ? samples/recRate : capturedSamples/recRate});
+  }
+  renderList();   // (e) render BEFORE releasing the lock
+  // (f) ONLY NOW release the wake lock — last.
+  if(wakeLock){ try{ await wakeLock.release(); }catch(e){} wakeLock=null; }
 }
 
 function flatten(chunks){ let len=0; for(const c of chunks) len+=c.length;
@@ -317,6 +443,40 @@ async function share(i){
 
 el("label").value = MODES[state.mode].label0;
 render();
+
+async function init(){
+  const db=await dbReady(); if(!db) return;   // Node shim / no IDB -> nothing to load
+  try{
+    // load finalized recordings -> recs[] (survive reloads)
+    const finalized=await idbReq(db.transaction("recordings","readonly").objectStore("recordings").getAll());
+    finalized.sort((a,b)=>(b.ts||0)-(a.ts||0));
+    for(const r of finalized) recs.push({blob:r.blob, name:r.name, dur:r.dur});
+    // recover interrupted sessions (done:false)
+    const sessions=await idbReq(db.transaction("sessions","readonly").objectStore("sessions").getAll());
+    let recovered=0;
+    for(const s of sessions){
+      if(s.done) continue;
+      const chunkRecs=await readChunks(db, s.sessionId);
+      if(chunkRecs.length===0){ // nothing salvageable; clean up the stale session
+        try{ db.transaction("sessions","readwrite").objectStore("sessions").delete(s.sessionId); }catch(e){}
+        continue;
+      }
+      const {blob, samples}=chunksToWavBlob(chunkRecs, s.rate);
+      const stamp=new Date(s.ts||Date.now()).toISOString().replace(/[-:T]/g,"").slice(0,15);
+      const suffix = state.lang==="pt" ? "recuperado" : "recovered";
+      const name=`ozni_${(s.label||"rec")}-${suffix}_${stamp}_${s.rate}hz.wav`;
+      const id=s.sessionId+"_rec";
+      try{ await idbReq(db.transaction("recordings","readwrite").objectStore("recordings").put({id, name, blob, dur:samples/s.rate, rate:s.rate, done:true, ts:s.ts||Date.now()})); }catch(e){ handleIdbError(e); }
+      recs.unshift({blob, name, dur:samples/s.rate});
+      try{ db.transaction("sessions","readwrite").objectStore("sessions").put({...s, done:true}); }catch(e){}
+      await deleteSessionChunks(db, s.sessionId);
+      recovered++;
+    }
+    renderList();
+    if(recovered>0){ el("err").textContent = tt(STR.recovered).replace("{n}", recovered); }
+  }catch(e){ /* recovery is best-effort; never block the UI */ }
+}
+init();
 </script>
 </body>
 </html>
