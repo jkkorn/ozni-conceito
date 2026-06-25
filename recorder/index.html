@@ -53,6 +53,7 @@
   .rec .nm{flex:1;font-size:13px;word-break:break-all}
   .rec .du{color:var(--muted);font-size:12px;font-variant-numeric:tabular-nums}
   .rec button{background:var(--accent);border:none;color:#fff;border-radius:8px;padding:8px 12px;font-size:13px;font-weight:600;cursor:pointer}
+  .rec button.sec{background:transparent;border:1px solid var(--line);color:var(--muted);padding:7px 10px}
   .empty{color:var(--muted);font-size:13px}
   .foot{color:var(--muted);font-size:12px;text-align:center;margin-top:18px}
   .note{color:var(--amber);font-size:12.5px;margin:10px 0 0;line-height:1.45}
@@ -96,6 +97,7 @@
     <div class="err" id="err"></div>
   </div>
 
+  <div class="card" style="text-align:center;padding:12px 16px"><button id="sharelink" onclick="shareRecorderLink()" style="background:transparent;border:1px solid var(--line);color:var(--muted);border-radius:10px;padding:9px 18px;font-size:14px;font-weight:600;cursor:pointer;width:100%"></button></div>
   <div class="card"><h2 id="h-list"></h2><div id="list"></div><p class="note" id="sendnote"></p></div>
   <p class="foot" id="foot"></p>
 </div>
@@ -111,8 +113,13 @@ const STR = {
   send:{pt:"Enviar", en:"Send"}, empty:{pt:"Nenhuma gravação ainda.", en:"No recordings yet."},
   clip:{pt:"CLIPOU — afaste o celular", en:"CLIPPED — move phone back"},
   peak:{pt:"pico", en:"peak"},
-  sendnote:{pt:"⚠️ Envie como ARQUIVO / Documento (ou por Drive / e-mail) — não como “áudio” do WhatsApp, senão o som perde qualidade e a gravação não serve.",
-            en:"⚠️ Send as a FILE / Document (or via Drive / email) — not as a WhatsApp “audio”, or the sound is re-compressed and the recording becomes useless."},
+  sendnote:{pt:"Toque Enviar, mande o .zip no WhatsApp (vai como documento, sem perder qualidade), quem recebe descompacta pra pegar o .wav. Use WAV só pra AirDrop ou e-mail.",
+            en:"Tap Send, send the .zip in WhatsApp (goes as a document, no quality loss), the recipient unzips to get the .wav. Use WAV only for AirDrop or email."},
+  wav:{pt:"WAV", en:"WAV"},
+  shareApp:{pt:"📤 Compartilhar gravador", en:"📤 Share recorder"},
+  invite:{pt:"Grave fogos ou tiros pra pesquisa do Ozni, abra o link e toque Gravar.", en:"Record fireworks or gunshots for Ozni research, open the link and tap Record."},
+  inviteTitle:{pt:"Gravador de campo Ozni", en:"Ozni field recorder"},
+  linkCopied:{pt:"✅ Link copiado", en:"✅ Link copied"},
   micblock:{pt:"Microfone bloqueado: ", en:"Mic blocked: "},
   stall:{pt:"⚠️ Microfone travou — a tela apagou? A captura parou.", en:"⚠️ Mic stalled — did the screen sleep? Capture stopped."},
   keepawake:{pt:"⚠️ Mantenha a tela ligada (desative o bloqueio automático) — em captura longa, a tela apagada interrompe a gravação.", en:"⚠️ Keep the screen on (disable auto-lock) — on a long capture, a sleeping screen stops the recording."},
@@ -171,7 +178,7 @@ const MODES = {
   },
 };
 
-const VERSION = "v1.2 · durable";   // bump on every recorder change; shown at top so a stale cache is obvious
+const VERSION = "v1.3 · share";   // bump on every recorder change; shown at top so a stale cache is obvious
 let state = {lang:"pt", mode:"fogos"};
 const tt = (o)=> (o && typeof o==="object") ? o[state.lang] : o;
 const el = (id)=> document.getElementById(id);
@@ -191,6 +198,7 @@ function render(){
   el("h-list").textContent = tt(STR.hList);
   el("foot").textContent = tt(STR.foot);
   el("sendnote").textContent = tt(STR.sendnote);
+  el("sharelink").textContent = tt(STR.shareApp);
   el("clipwarn").textContent = tt(STR.clip);
 
   el("rules").innerHTML = "";
@@ -420,6 +428,95 @@ function encodeWAV(samples, rate){
   return new Blob([v],{type:"audio/wav"});
 }
 
+// ---- CRC-32 (standard reflected polynomial 0xEDB88320) ----
+// Used only by makeStoredZip. Both functions use ONLY ArrayBuffer/DataView/Uint8Array/Blob
+// so they are safe to define and call inside the Node verify shim (no browser-only APIs).
+const CRC32_TABLE = (()=>{
+  const t=new Uint32Array(256);
+  for(let i=0;i<256;i++){
+    let c=i;
+    for(let k=0;k<8;k++) c = (c&1) ? (0xEDB88320 ^ (c>>>1)) : (c>>>1);
+    t[i]=c;
+  }
+  return t;
+})();
+function crc32(u8){
+  let c=0xFFFFFFFF;
+  for(let i=0;i<u8.length;i++) c = (c>>>8) ^ CRC32_TABLE[(c ^ u8[i]) & 0xFF];
+  return (c ^ 0xFFFFFFFF) >>> 0;
+}
+
+// Build a minimal STORED (method 0) zip containing exactly one entry.
+// STORE (method 0) is deliberate: WhatsApp ships .zip documents byte-for-byte, so the
+// uncompressed WAV inside survives the transfer without any re-encoding.
+// bytes: Uint8Array of file bytes (e.g. WAV). Returns a single-part Blob "application/zip".
+function makeStoredZip(filename, bytes){
+  const size = bytes.length;
+  const crc  = crc32(bytes);
+  // Encode filename — TextEncoder is a standard global in both browser and Node (not DOM).
+  const nameBytes = new TextEncoder().encode(filename);
+  const nameLen   = nameBytes.length;
+
+  // Exact total: LocalHeader(30) + name + data + CentralHeader(46) + name + EOCD(22)
+  const localStart    = 0;
+  const dataStart     = 30 + nameLen;
+  const cdStart       = dataStart + size;
+  const eocdStart     = cdStart + 46 + nameLen;
+  const totalLen      = eocdStart + 22;
+
+  const buf = new ArrayBuffer(totalLen);
+  const v   = new DataView(buf);
+  const u8  = new Uint8Array(buf);
+
+  // Local File Header
+  v.setUint32(localStart +  0, 0x04034b50, true); // signature PK\x03\x04
+  v.setUint16(localStart +  4, 20,          true); // version needed: 2.0
+  v.setUint16(localStart +  6, 0,           true); // flags
+  v.setUint16(localStart +  8, 0,           true); // method: STORE (0)
+  v.setUint16(localStart + 10, 0,           true); // mod time
+  v.setUint16(localStart + 12, 0,           true); // mod date
+  v.setUint32(localStart + 14, crc,         true); // CRC-32
+  v.setUint32(localStart + 18, size,        true); // compressed size
+  v.setUint32(localStart + 22, size,        true); // uncompressed size
+  v.setUint16(localStart + 26, nameLen,     true); // file name length
+  v.setUint16(localStart + 28, 0,           true); // extra field length
+  u8.set(nameBytes, localStart + 30);               // file name bytes
+  u8.set(bytes,     dataStart);                     // file data (verbatim, no inflate)
+
+  // Central Directory File Header
+  v.setUint32(cdStart +  0, 0x02014b50, true); // signature PK\x01\x02
+  v.setUint16(cdStart +  4, 20,          true); // version made by
+  v.setUint16(cdStart +  6, 20,          true); // version needed
+  v.setUint16(cdStart +  8, 0,           true); // flags
+  v.setUint16(cdStart + 10, 0,           true); // method: STORE (0)
+  v.setUint16(cdStart + 12, 0,           true); // mod time
+  v.setUint16(cdStart + 14, 0,           true); // mod date
+  v.setUint32(cdStart + 16, crc,         true); // CRC-32
+  v.setUint32(cdStart + 20, size,        true); // compressed size
+  v.setUint32(cdStart + 24, size,        true); // uncompressed size
+  v.setUint16(cdStart + 28, nameLen,     true); // file name length
+  v.setUint16(cdStart + 30, 0,           true); // extra field length
+  v.setUint16(cdStart + 32, 0,           true); // file comment length
+  v.setUint16(cdStart + 34, 0,           true); // disk number start
+  v.setUint16(cdStart + 36, 0,           true); // internal file attributes
+  v.setUint32(cdStart + 38, 0,           true); // external file attributes
+  v.setUint32(cdStart + 42, 0,           true); // relative offset of local header
+  u8.set(nameBytes, cdStart + 46);               // file name bytes
+
+  // End Of Central Directory
+  v.setUint32(eocdStart +  0, 0x06054b50, true); // signature PK\x05\x06
+  v.setUint16(eocdStart +  4, 0,           true); // disk number
+  v.setUint16(eocdStart +  6, 0,           true); // disk with cd start
+  v.setUint16(eocdStart +  8, 1,           true); // cd records on this disk
+  v.setUint16(eocdStart + 10, 1,           true); // total cd records
+  v.setUint32(eocdStart + 12, 46 + nameLen,true); // size of central directory
+  v.setUint32(eocdStart + 16, cdStart,     true); // offset of cd start
+  v.setUint16(eocdStart + 20, 0,           true); // zip file comment length
+
+  // Single-part, exactly-sized buffer — required so the Node shim Blob captures all bytes.
+  return new Blob([new Uint8Array(buf)], {type:"application/zip"});
+}
+
 function renderList(){
   const list=el("list");
   if(recs.length===0){ list.innerHTML = `<p class="empty">${tt(STR.empty)}</p>`; return; }
@@ -428,17 +525,45 @@ function renderList(){
     const row=document.createElement("div"); row.className="rec";
     row.innerHTML = `<span class="nm">${r.name}</span><span class="du">${r.dur.toFixed(1)}s</span>`;
     const btn=document.createElement("button"); btn.textContent=tt(STR.send);
-    btn.onclick=()=>share(i); row.appendChild(btn); list.appendChild(row);
+    btn.onclick=()=>share(i); row.appendChild(btn);
+    const wavBtn=document.createElement("button"); wavBtn.textContent=tt(STR.wav);
+    wavBtn.className="sec"; wavBtn.onclick=()=>shareWav(i); row.appendChild(wavBtn);
+    list.appendChild(row);
   });
 }
 
+// Primary share: wrap recording in a STORED zip so WhatsApp treats it as a document
+// and delivers it byte-for-byte (WhatsApp transcodes raw audio to Opus, destroying quality).
 async function share(i){
+  const r=recs[i];
+  const wavBytes=new Uint8Array(await r.blob.arrayBuffer());
+  const zipBlob=makeStoredZip(r.name, wavBytes);
+  const zipName=r.name.replace(/\.wav$/i,"")+".zip";
+  const file=new File([zipBlob], zipName, {type:"application/zip"});
+  if(navigator.canShare && navigator.canShare({files:[file]})){
+    try{ await navigator.share({files:[file], title:zipName}); return; }catch(e){ if(e.name==="AbortError")return; }
+  }
+  const a=document.createElement("a"); a.href=URL.createObjectURL(zipBlob); a.download=zipName;
+  document.body.appendChild(a); a.click(); a.remove();
+}
+
+// Secondary share: raw WAV — for the user's own AirDrop-to-Mac / email flow.
+async function shareWav(i){
   const r=recs[i]; const file=new File([r.blob], r.name, {type:"audio/wav"});
   if(navigator.canShare && navigator.canShare({files:[file]})){
     try{ await navigator.share({files:[file], title:r.name}); return; }catch(e){ if(e.name==="AbortError")return; }
   }
   const a=document.createElement("a"); a.href=URL.createObjectURL(r.blob); a.download=r.name;
   document.body.appendChild(a); a.click(); a.remove();
+}
+
+// Share the recorder page URL with a bilingual invite; clipboard fallback shows a notice.
+async function shareRecorderLink(){
+  const url=location.href;
+  if(navigator.share){
+    try{ await navigator.share({title:tt(STR.inviteTitle), text:tt(STR.invite), url}); return; }catch(e){ if(e.name==="AbortError")return; }
+  }
+  try{ await navigator.clipboard.writeText(url); el("err").textContent=tt(STR.linkCopied); }catch(e){}
 }
 
 el("label").value = MODES[state.mode].label0;
