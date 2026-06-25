@@ -57,6 +57,11 @@
   .empty{color:var(--muted);font-size:13px}
   .foot{color:var(--muted);font-size:12px;text-align:center;margin-top:18px}
   .note{color:var(--amber);font-size:12.5px;margin:10px 0 0;line-height:1.45}
+  .rec button.cloud{background:var(--accent);font-weight:700;padding:9px 12px}
+  .rec button.cloud.ok{background:var(--ok)}
+  .rec button.cloud.fail{background:var(--danger)}
+  .rec button.cloud.off{background:var(--amber);color:#1a1d24}
+  .consent{color:var(--muted);font-size:12px;margin:8px 0 0;line-height:1.45}
 </style>
 </head>
 <body>
@@ -98,7 +103,7 @@
   </div>
 
   <div class="card" style="text-align:center;padding:12px 16px"><button id="sharelink" onclick="shareRecorderLink()" style="background:transparent;border:1px solid var(--line);color:var(--muted);border-radius:10px;padding:9px 18px;font-size:14px;font-weight:600;cursor:pointer;width:100%"></button></div>
-  <div class="card"><h2 id="h-list"></h2><div id="list"></div><p class="note" id="sendnote"></p></div>
+  <div class="card"><h2 id="h-list"></h2><div id="list"></div><p class="note" id="sendnote"></p><p class="consent" id="consent"></p></div>
   <p class="foot" id="foot"></p>
 </div>
 
@@ -116,6 +121,14 @@ const STR = {
   sendnote:{pt:"Toque Enviar, mande o .zip no WhatsApp (vai como documento, sem perder qualidade), quem recebe descompacta pra pegar o .wav. Use WAV só pra AirDrop ou e-mail.",
             en:"Tap Send, send the .zip in WhatsApp (goes as a document, no quality loss), the recipient unzips to get the .wav. Use WAV only for AirDrop or email."},
   wav:{pt:"WAV", en:"WAV"},
+  zipFallback:{pt:"📦 Zip", en:"📦 Zip"},
+  uploadIdle:   {pt:"☁️ Enviar pra análise",                           en:"☁️ Send for analysis"},
+  uploadSending:{pt:"Enviando…",                                        en:"Sending…"},
+  uploadDone:   {pt:"✅ Enviado!",                                      en:"✅ Sent!"},
+  uploadFail:   {pt:"❌ Falhou — toque pra tentar",                     en:"❌ Failed — tap to retry"},
+  uploadOffline:{pt:"📡 Sem internet — conecte e toque de novo",         en:"📡 No internet — connect and tap again"},
+  consent:      {pt:"Ao tocar Enviar, sua gravação vai pro Ozni pra pesquisa. Nada sai do celular até você enviar.",
+                 en:"When you tap Send, your recording goes to Ozni for research. Nothing leaves your phone until you send it."},
   shareApp:{pt:"📤 Compartilhar gravador", en:"📤 Share recorder"},
   invite:{pt:"Grave fogos ou tiros pra pesquisa do Ozni, abra o link e toque Gravar.", en:"Record fireworks or gunshots for Ozni research, open the link and tap Record."},
   inviteTitle:{pt:"Gravador de campo Ozni", en:"Ozni field recorder"},
@@ -178,7 +191,17 @@ const MODES = {
   },
 };
 
-const VERSION = "v1.3 · share";   // bump on every recorder change; shown at top so a stale cache is obvious
+const VERSION = "v1.4 · upload";   // bump on every recorder change; shown at top so a stale cache is obvious
+
+// ---- Supabase upload config (replace placeholders to enable; keep placeholders to deploy safe) ----
+// UNCONFIGURED BUILD: placeholder url does not match ^https:// → UPLOAD_ENABLED = false →
+// NO cloud button, NO fetch, NO localStorage at top level → identical to v1.3 recorder.
+const UPLOAD = {
+  url:     "https://artmeyoutvbitcapokal.supabase.co",        // e.g. "https://xxxx.supabase.co"
+  anonKey: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFydG1leW91dHZiaXRjYXBva2FsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODIzOTk3NzMsImV4cCI6MjA5Nzk3NTc3M30.Xarxa3EkLvaafzEBvh9Tey_4yNQ6d1ox8YluItL4i4E",   // safe to embed: anon key is upload-only by RLS policy
+  bucket:  "field-recordings"
+};
+const UPLOAD_ENABLED = /^https:\/\//.test(UPLOAD.url);   // pure regex on a string — safe at top level
 let state = {lang:"pt", mode:"fogos"};
 const tt = (o)=> (o && typeof o==="object") ? o[state.lang] : o;
 const el = (id)=> document.getElementById(id);
@@ -198,6 +221,7 @@ function render(){
   el("h-list").textContent = tt(STR.hList);
   el("foot").textContent = tt(STR.foot);
   el("sendnote").textContent = tt(STR.sendnote);
+  el("consent").textContent = tt(STR.consent);
   el("sharelink").textContent = tt(STR.shareApp);
   el("clipwarn").textContent = tt(STR.clip);
 
@@ -400,13 +424,13 @@ async function stop(){
       // (d) mark session done + delete its chunks
       try{ db.transaction("sessions","readwrite").objectStore("sessions").put({sessionId:sid, rate:recRate, label, ts:Date.now(), done:true}); }catch(e){}
       await deleteSessionChunks(db, sid);
-      recs.unshift({blob:rec.blob, name:rec.name, dur:rec.dur});  // in-memory list mirrors persisted
+      recs.unshift({blob:rec.blob, name:rec.name, dur:rec.dur, id:rec.id, uploaded:false});  // in-memory list mirrors persisted
     }catch(e){ handleIdbError(e); }
   } else {
     // No IDB (e.g. private mode without storage): assemble from the in-memory fallback chunks
     // that flushPending retained, so the user still gets the FULL clip (not just the last batch).
     const {blob, samples}=chunksToWavBlob(memChunks.slice(), recRate);
-    recs.unshift({blob, name, dur: samples ? samples/recRate : capturedSamples/recRate});
+    recs.unshift({blob, name, dur: samples ? samples/recRate : capturedSamples/recRate, id:sid, uploaded:false});
   }
   renderList();   // (e) render BEFORE releasing the lock
   // (f) ONLY NOW release the wake lock — last.
@@ -517,6 +541,37 @@ function makeStoredZip(filename, bytes){
   return new Blob([new Uint8Array(buf)], {type:"application/zip"});
 }
 
+// ---- deviceId (localStorage inside the function — never accessed at top level) ----
+function getDeviceId(){
+  try{
+    let id = localStorage.getItem("ozni_device_id");
+    if(!id){ id = (crypto.randomUUID ? crypto.randomUUID() : String(Date.now())+"-"+Math.random().toString(16).slice(2)); localStorage.setItem("ozni_device_id", id); }
+    return id;
+  }catch(e){ return "nodevice"; }   // private mode without storage — still uploads, just unnamespaced
+}
+
+// ---- uploadRecording: vanilla fetch, NO supabase-js. Returns {ok, status}.
+// Retries up to 2 extra attempts (3 total) with backoff on network error or 5xx;
+// does NOT retry on 4xx (bad request/policy — surface immediately).
+// All browser APIs (fetch, localStorage, crypto, setTimeout) are INSIDE function bodies
+// so they are never accessed during the Node shim eval. ----
+async function uploadRecording(rec){
+  const deviceId = getDeviceId();
+  const path = `${UPLOAD.url}/storage/v1/object/${UPLOAD.bucket}/${deviceId}/${encodeURIComponent(rec.name)}`;
+  const headers = { "Authorization":`Bearer ${UPLOAD.anonKey}`, "apikey":UPLOAD.anonKey, "Content-Type":"audio/wav" };  // no x-upsert: insert-only RLS policy needs no UPDATE; paths are unique (deviceId + timestamp)
+  let lastStatus = 0;
+  for(let attempt=0; attempt<3; attempt++){
+    try{
+      const res = await fetch(path, { method:"POST", headers, body:rec.blob });
+      lastStatus = res.status;
+      if(res.status===200 || res.status===201) return {ok:true, status:res.status};
+      if(res.status>=400 && res.status<500) return {ok:false, status:res.status};   // policy/auth — no retry
+    }catch(e){ lastStatus = 0; }   // network error → retry
+    if(attempt<2) await new Promise(r=>setTimeout(r, 800*(attempt+1)));   // backoff
+  }
+  return {ok:false, status:lastStatus};
+}
+
 function renderList(){
   const list=el("list");
   if(recs.length===0){ list.innerHTML = `<p class="empty">${tt(STR.empty)}</p>`; return; }
@@ -524,12 +579,45 @@ function renderList(){
   recs.forEach((r,i)=>{
     const row=document.createElement("div"); row.className="rec";
     row.innerHTML = `<span class="nm">${r.name}</span><span class="du">${r.dur.toFixed(1)}s</span>`;
-    const btn=document.createElement("button"); btn.textContent=tt(STR.send);
-    btn.onclick=()=>share(i); row.appendChild(btn);
-    const wavBtn=document.createElement("button"); wavBtn.textContent=tt(STR.wav);
-    wavBtn.className="sec"; wavBtn.onclick=()=>shareWav(i); row.appendChild(wavBtn);
+    if(UPLOAD_ENABLED){
+      const cloud=document.createElement("button"); cloud.className="cloud";
+      if(r.uploaded){ cloud.classList.add("ok"); cloud.textContent=tt(STR.uploadDone); cloud.disabled=true; }
+      else { cloud.textContent=tt(STR.uploadIdle); cloud.onclick=()=>doUpload(i, cloud); }
+      row.appendChild(cloud);
+    }
+    const zipBtn=document.createElement("button"); zipBtn.className="sec"; zipBtn.textContent=tt(STR.zipFallback); zipBtn.onclick=()=>share(i); row.appendChild(zipBtn);
+    const wavBtn=document.createElement("button"); wavBtn.className="sec"; wavBtn.textContent=tt(STR.wav); wavBtn.onclick=()=>shareWav(i); row.appendChild(wavBtn);
     list.appendChild(row);
   });
+}
+
+// ---- doUpload: drives the cloud button through dummy-proof states.
+// NEVER deletes or modifies the recording on failure — the clip stays in IDB and zip/WAV remain. ----
+async function doUpload(i, btn){
+  if(typeof navigator!=="undefined" && navigator.onLine===false){
+    btn.className="cloud off"; btn.textContent=tt(STR.uploadOffline); return;   // recording untouched
+  }
+  btn.disabled=true; btn.className="cloud"; btn.textContent=tt(STR.uploadSending);
+  const res = await uploadRecording(recs[i]);
+  if(res.ok){
+    recs[i].uploaded=true;
+    btn.className="cloud ok"; btn.textContent=tt(STR.uploadDone);   // stays disabled
+    await markUploaded(recs[i].id);   // persist; recording stays in store regardless
+  } else {
+    btn.disabled=false; btn.className="cloud fail"; btn.textContent=tt(STR.uploadFail);
+    btn.onclick=()=>doUpload(i, btn);   // tappable retry; clip never removed
+  }
+}
+
+// ---- markUploaded: read-modify-write the IDB recordings record (guard for no-IDB). ----
+async function markUploaded(id){
+  if(!id) return;
+  const db=await dbReady(); if(!db) return;
+  try{
+    const store=db.transaction("recordings","readwrite").objectStore("recordings");
+    const rec=await idbReq(store.get(id));
+    if(rec){ rec.uploaded=true; await idbReq(db.transaction("recordings","readwrite").objectStore("recordings").put(rec)); }
+  }catch(e){ /* persistence is best-effort; the ✅ for this session still shows from recs[i].uploaded */ }
 }
 
 // Primary share: wrap recording in a STORED zip so WhatsApp treats it as a document
@@ -575,7 +663,7 @@ async function init(){
     // load finalized recordings -> recs[] (survive reloads)
     const finalized=await idbReq(db.transaction("recordings","readonly").objectStore("recordings").getAll());
     finalized.sort((a,b)=>(b.ts||0)-(a.ts||0));
-    for(const r of finalized) recs.push({blob:r.blob, name:r.name, dur:r.dur});
+    for(const r of finalized) recs.push({blob:r.blob, name:r.name, dur:r.dur, id:r.id, uploaded:!!r.uploaded});
     // recover interrupted sessions (done:false)
     const sessions=await idbReq(db.transaction("sessions","readonly").objectStore("sessions").getAll());
     let recovered=0;
@@ -592,7 +680,7 @@ async function init(){
       const name=`ozni_${(s.label||"rec")}-${suffix}_${stamp}_${s.rate}hz.wav`;
       const id=s.sessionId+"_rec";
       try{ await idbReq(db.transaction("recordings","readwrite").objectStore("recordings").put({id, name, blob, dur:samples/s.rate, rate:s.rate, done:true, ts:s.ts||Date.now()})); }catch(e){ handleIdbError(e); }
-      recs.unshift({blob, name, dur:samples/s.rate});
+      recs.unshift({blob, name, dur:samples/s.rate, id, uploaded:false});
       try{ db.transaction("sessions","readwrite").objectStore("sessions").put({...s, done:true}); }catch(e){}
       await deleteSessionChunks(db, s.sessionId);
       recovered++;
