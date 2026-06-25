@@ -129,6 +129,8 @@ const STR = {
   uploadOffline:{pt:"📡 Sem internet — conecte e toque de novo",         en:"📡 No internet — connect and tap again"},
   consent:      {pt:"Ao tocar Enviar, sua gravação vai pro Ozni pra pesquisa. Nada sai do celular até você enviar.",
                  en:"When you tap Send, your recording goes to Ozni for research. Nothing leaves your phone until you send it."},
+  accel:    {pt:"📈 accel", en:"📈 accel"},
+  accelNote:{pt:"📈 = dados do acelerômetro desta gravação (teste do filtro de vibração).", en:"📈 = accelerometer data for this clip (vibration-gate test)."},
   shareApp:{pt:"📤 Compartilhar gravador", en:"📤 Share recorder"},
   invite:{pt:"Grave fogos ou tiros pra pesquisa do Ozni, abra o link e toque Gravar.", en:"Record fireworks or gunshots for Ozni research, open the link and tap Record."},
   inviteTitle:{pt:"Gravador de campo Ozni", en:"Ozni field recorder"},
@@ -191,7 +193,7 @@ const MODES = {
   },
 };
 
-const VERSION = "v1.4 · upload";   // bump on every recorder change; shown at top so a stale cache is obvious
+const VERSION = "v1.5 · accel";   // bump on every recorder change; shown at top so a stale cache is obvious
 
 // ---- Supabase upload config (replace placeholders to enable; keep placeholders to deploy safe) ----
 // UNCONFIGURED BUILD: placeholder url does not match ^https:// → UPLOAD_ENABLED = false →
@@ -249,6 +251,18 @@ let recording=false, recRate=48000, startMs=0, timerId=null, sessionPeak=0;
 let capturedSamples=0, lastAudioMs=0;
 let wakeLock=null, visHandlerBound=false;
 let recs = [];
+let accelSamples = [], accelOK = false; let _accelHandler = null;
+
+// devicemotion handler — module-scope; body references only e/Date/accelSamples (harness-safe).
+// NEVER called at top level — only registered inside start().
+function onDeviceMotion(e){
+  const a = (e.acceleration && (e.acceleration.x!=null||e.acceleration.y!=null||e.acceleration.z!=null))
+            ? e.acceleration : e.accelerationIncludingGravity;
+  if(!a) return;
+  const x = a.x==null?0:a.x, y = a.y==null?0:a.y, z = a.z==null?0:a.z;
+  accelSamples.push({ t: Date.now()-startMs, x, y, z });
+  accelOK = true;
+}
 
 // ---- lazy IndexedDB (guarded: never accessed at top level — Node verify shim has no indexedDB) ----
 const DB_NAME = "ozni-rec", DB_VER = 1;
@@ -391,6 +405,17 @@ async function start(){
   };
   source.connect(processor); processor.connect(zero); zero.connect(ctx.destination);
   recording=true; startMs=Date.now(); setRecUI();
+  // Start accelerometer logging (ADDITIVE, non-fatal; requestPermission valid here on user gesture)
+  accelSamples = []; accelOK = false;
+  try{
+    if(typeof DeviceMotionEvent !== "undefined" && typeof DeviceMotionEvent.requestPermission === "function"){
+      try{ await DeviceMotionEvent.requestPermission(); }catch(e){ /* user declined / non-secure ctx — keep recording without accel */ }
+    }
+    if(typeof window !== "undefined" && window.addEventListener){
+      _accelHandler = onDeviceMotion;
+      window.addEventListener("devicemotion", _accelHandler);
+    }
+  }catch(e){ /* accel is best-effort; never block audio capture */ }
   acquireWakeLock();
   if(!visHandlerBound){ visHandlerBound=true; document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='visible' && recording) acquireWakeLock(); }); }
   ctx.onstatechange = ()=>{ if(recording && (ctx.state==='suspended'||ctx.state==='interrupted')){ ctx.resume().catch(()=>{}); } };
@@ -402,6 +427,10 @@ async function start(){
 
 async function stop(){
   recording=false; clearInterval(timerId);
+  // Stop accel listener and snapshot EARLY (before async IDB work)
+  try{ if(_accelHandler && typeof window!=="undefined" && window.removeEventListener){ window.removeEventListener("devicemotion", _accelHandler); } }catch(e){}
+  _accelHandler = null;
+  const accelSnapshot = accelSamples.slice();
   try{ processor.disconnect(); source.disconnect(); zero.disconnect(); }catch(e){}
   stream.getTracks().forEach(t=>t.stop());
   ctx.close();
@@ -419,18 +448,18 @@ async function stop(){
     try{
       const recsForSession=await readChunks(db, sid);          // (b) read chunks back in seq order
       const {blob, samples}=chunksToWavBlob(recsForSession, recRate);
-      const rec={ id:sid, name, blob, dur:samples/recRate, rate:recRate, done:true, ts:Date.now() };
+      const rec={ id:sid, name, blob, dur:samples/recRate, rate:recRate, done:true, ts:Date.now(), accel:accelSnapshot };
       await idbReq(db.transaction("recordings","readwrite").objectStore("recordings").put(rec));  // (c) persist finalized
       // (d) mark session done + delete its chunks
       try{ db.transaction("sessions","readwrite").objectStore("sessions").put({sessionId:sid, rate:recRate, label, ts:Date.now(), done:true}); }catch(e){}
       await deleteSessionChunks(db, sid);
-      recs.unshift({blob:rec.blob, name:rec.name, dur:rec.dur, id:rec.id, uploaded:false});  // in-memory list mirrors persisted
+      recs.unshift({blob:rec.blob, name:rec.name, dur:rec.dur, id:rec.id, uploaded:false, accel:accelSnapshot});  // in-memory list mirrors persisted
     }catch(e){ handleIdbError(e); }
   } else {
     // No IDB (e.g. private mode without storage): assemble from the in-memory fallback chunks
     // that flushPending retained, so the user still gets the FULL clip (not just the last batch).
     const {blob, samples}=chunksToWavBlob(memChunks.slice(), recRate);
-    recs.unshift({blob, name, dur: samples ? samples/recRate : capturedSamples/recRate, id:sid, uploaded:false});
+    recs.unshift({blob, name, dur: samples ? samples/recRate : capturedSamples/recRate, id:sid, uploaded:false, accel:accelSnapshot});
   }
   renderList();   // (e) render BEFORE releasing the lock
   // (f) ONLY NOW release the wake lock — last.
@@ -587,8 +616,25 @@ function renderList(){
     }
     const zipBtn=document.createElement("button"); zipBtn.className="sec"; zipBtn.textContent=tt(STR.zipFallback); zipBtn.onclick=()=>share(i); row.appendChild(zipBtn);
     const wavBtn=document.createElement("button"); wavBtn.className="sec"; wavBtn.textContent=tt(STR.wav); wavBtn.onclick=()=>shareWav(i); row.appendChild(wavBtn);
+    if(r.accel && r.accel.length){
+      const accBtn=document.createElement("button"); accBtn.className="sec";
+      accBtn.textContent=tt(STR.accel); accBtn.onclick=()=>shareAccel(i); row.appendChild(accBtn);
+    }
     list.appendChild(row);
   });
+}
+
+// Best-effort: upload the accel JSON sidecar alongside the WAV. Never throws; failure does
+// NOT affect the (canonical) WAV upload or the recording. Only meaningful when UPLOAD_ENABLED.
+async function uploadAccelSidecar(rec){
+  try{
+    if(!rec || !rec.accel || !rec.accel.length) return;
+    const deviceId = getDeviceId();
+    const path = `${UPLOAD.url}/storage/v1/object/${UPLOAD.bucket}/${deviceId}/${encodeURIComponent(rec.name)}.accel.json`;
+    const headers = { "Authorization":`Bearer ${UPLOAD.anonKey}`, "apikey":UPLOAD.anonKey, "Content-Type":"application/json" };  // plain insert, insert-only like WAV
+    const body = JSON.stringify({ rate:rec.rate||recRate, dur:rec.dur, samples:rec.accel });
+    await fetch(path, { method:"POST", headers, body });   // result ignored on purpose — WAV is canonical
+  }catch(e){ /* swallow: accel upload is best-effort and must never fail the recording */ }
 }
 
 // ---- doUpload: drives the cloud button through dummy-proof states.
@@ -603,6 +649,7 @@ async function doUpload(i, btn){
     recs[i].uploaded=true;
     btn.className="cloud ok"; btn.textContent=tt(STR.uploadDone);   // stays disabled
     await markUploaded(recs[i].id);   // persist; recording stays in store regardless
+    uploadAccelSidecar(recs[i]);   // fire-and-forget best-effort; never awaited; never affects button state
   } else {
     btn.disabled=false; btn.className="cloud fail"; btn.textContent=tt(STR.uploadFail);
     btn.onclick=()=>doUpload(i, btn);   // tappable retry; clip never removed
@@ -645,6 +692,22 @@ async function shareWav(i){
   document.body.appendChild(a); a.click(); a.remove();
 }
 
+// Accel sidecar download/share — mirrors shareWav fallback shape exactly.
+// Gated on r.accel?.length so it is never called for recordings without accel data.
+async function shareAccel(i){
+  const r=recs[i]; if(!r.accel || !r.accel.length) return;
+  const base=r.name.replace(/\.wav$/i,"");
+  const jsonName=base+".accel.json";
+  const payload=JSON.stringify({ rate:r.rate||recRate, dur:r.dur, samples:r.accel });
+  const blob=new Blob([payload],{type:"application/json"});
+  const file=new File([blob], jsonName, {type:"application/json"});
+  if(navigator.canShare && navigator.canShare({files:[file]})){
+    try{ await navigator.share({files:[file], title:jsonName}); return; }catch(e){ if(e.name==="AbortError")return; }
+  }
+  const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download=jsonName;
+  document.body.appendChild(a); a.click(); a.remove();
+}
+
 // Share the recorder page URL with a bilingual invite; clipboard fallback shows a notice.
 async function shareRecorderLink(){
   const url=location.href;
@@ -663,7 +726,7 @@ async function init(){
     // load finalized recordings -> recs[] (survive reloads)
     const finalized=await idbReq(db.transaction("recordings","readonly").objectStore("recordings").getAll());
     finalized.sort((a,b)=>(b.ts||0)-(a.ts||0));
-    for(const r of finalized) recs.push({blob:r.blob, name:r.name, dur:r.dur, id:r.id, uploaded:!!r.uploaded});
+    for(const r of finalized) recs.push({blob:r.blob, name:r.name, dur:r.dur, id:r.id, uploaded:!!r.uploaded, accel:r.accel||null});
     // recover interrupted sessions (done:false)
     const sessions=await idbReq(db.transaction("sessions","readonly").objectStore("sessions").getAll());
     let recovered=0;
@@ -680,7 +743,7 @@ async function init(){
       const name=`ozni_${(s.label||"rec")}-${suffix}_${stamp}_${s.rate}hz.wav`;
       const id=s.sessionId+"_rec";
       try{ await idbReq(db.transaction("recordings","readwrite").objectStore("recordings").put({id, name, blob, dur:samples/s.rate, rate:s.rate, done:true, ts:s.ts||Date.now()})); }catch(e){ handleIdbError(e); }
-      recs.unshift({blob, name, dur:samples/s.rate, id, uploaded:false});
+      recs.unshift({blob, name, dur:samples/s.rate, id, uploaded:false, accel:null});
       try{ db.transaction("sessions","readwrite").objectStore("sessions").put({...s, done:true}); }catch(e){}
       await deleteSessionChunks(db, s.sessionId);
       recovered++;
