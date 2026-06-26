@@ -89,6 +89,7 @@
 
   <div class="card">
     <h2 id="h-rec"></h2>
+    <div class="label-row"><input id="devname" autocapitalize="words" autocorrect="off" spellcheck="false"></div>
     <div class="label-row"><input id="label" autocapitalize="off" autocorrect="off" spellcheck="false"></div>
     <div class="chips" id="chips"></div>
     <div class="meter" id="meter"><div id="meterbar"></div></div>
@@ -141,6 +142,7 @@ const STR = {
   keepawake:{pt:"⚠️ Mantenha a tela ligada (desative o bloqueio automático) — em captura longa, a tela apagada interrompe a gravação.", en:"⚠️ Keep the screen on (disable auto-lock) — on a long capture, a sleeping screen stops the recording."},
   recovered:{pt:"✅ {n} gravação(ões) recuperada(s) de uma sessão interrompida — toque Enviar.", en:"✅ Recovered {n} recording(s) from an interrupted session — tap Send."},
   accelOff:{pt:"📈 Acelerômetro desligado — ative Movimento e Orientação nos Ajustes do Safari/Arc.", en:"📈 Accelerometer off — enable Motion & Orientation Access in Safari/Arc settings."},
+  devname:{pt:"Seu nome ou local (vai no nome do arquivo)", en:"Your name or place (goes in the file name)"},
   quota:{pt:"⚠️ Armazenamento cheio — toque Enviar e apague gravações.", en:"⚠️ Storage full — Send then delete recordings."},
   foot:{pt:"Tudo fica no seu celular. Nada é enviado sozinho. Funciona offline depois de abrir.",
         en:"Everything stays on your phone. Nothing is sent automatically. Works offline once loaded."},
@@ -195,7 +197,7 @@ const MODES = {
   },
 };
 
-const VERSION = "v1.6 · accel";   // bump on every recorder change; shown at top so a stale cache is obvious
+const VERSION = "v1.7 · named";   // bump on every recorder change; shown at top so a stale cache is obvious
 
 // ---- Supabase upload config (replace placeholders to enable; keep placeholders to deploy safe) ----
 // UNCONFIGURED BUILD: placeholder url does not match ^https:// → UPLOAD_ENABLED = false →
@@ -228,6 +230,7 @@ function render(){
   el("consent").textContent = tt(STR.consent);
   el("sharelink").textContent = tt(STR.shareApp);
   el("clipwarn").textContent = tt(STR.clip);
+  el("devname").placeholder = tt(STR.devname);
 
   el("rules").innerHTML = "";
   m.rules.forEach(r=>{ const li=document.createElement("li"); li.innerHTML = tt(r); el("rules").appendChild(li); });
@@ -443,7 +446,8 @@ async function stop(){
 
   const label=(el("label").value||"rec").replace(/\s+/g,"-");
   const stamp=new Date().toISOString().replace(/[-:T]/g,"").slice(0,15);
-  const name=`ozni_${label}_${stamp}_${recRate}hz.wav`;
+  const dev=devSlug();
+  const name=`ozni_${dev?dev+"_":""}${label}_${stamp}_${recRate}hz.wav`;
   const sid=sessionId;
 
   const db=await dbReady();
@@ -580,6 +584,19 @@ function getDeviceId(){
     if(!id){ id = (crypto.randomUUID ? crypto.randomUUID() : String(Date.now())+"-"+Math.random().toString(16).slice(2)); localStorage.setItem("ozni_device_id", id); }
     return id;
   }catch(e){ return "nodevice"; }   // private mode without storage — still uploads, just unnamespaced
+}
+
+// ---- device name (human label for whose phone this is; localStorage INSIDE the fn — harness-safe) ----
+function getDeviceName(){
+  try{ return localStorage.getItem("ozni_device_name") || ""; }catch(e){ return ""; }
+}
+function setDeviceName(v){
+  try{ localStorage.setItem("ozni_device_name", (v||"").trim()); }catch(e){}
+}
+// filename-safe slug of the device name: strip accents, non-alphanumerics -> "-", cap length.
+function devSlug(){
+  return getDeviceName().toLowerCase().normalize("NFD").replace(/\p{Diacritic}/gu,"")
+    .replace(/[^a-z0-9]+/g,"-").replace(/^-+|-+$/g,"").slice(0,24);
 }
 
 // ---- uploadRecording: vanilla fetch, NO supabase-js. Returns {ok, status}.
@@ -721,6 +738,8 @@ async function shareRecorderLink(){
 }
 
 el("label").value = MODES[state.mode].label0;
+el("devname").value = getDeviceName();
+el("devname").oninput = ()=>setDeviceName(el("devname").value);
 render();
 
 async function init(){
@@ -743,7 +762,8 @@ async function init(){
       const {blob, samples}=chunksToWavBlob(chunkRecs, s.rate);
       const stamp=new Date(s.ts||Date.now()).toISOString().replace(/[-:T]/g,"").slice(0,15);
       const suffix = state.lang==="pt" ? "recuperado" : "recovered";
-      const name=`ozni_${(s.label||"rec")}-${suffix}_${stamp}_${s.rate}hz.wav`;
+      const dev=devSlug();
+      const name=`ozni_${dev?dev+"_":""}${(s.label||"rec")}-${suffix}_${stamp}_${s.rate}hz.wav`;
       const id=s.sessionId+"_rec";
       try{ await idbReq(db.transaction("recordings","readwrite").objectStore("recordings").put({id, name, blob, dur:samples/s.rate, rate:s.rate, done:true, ts:s.ts||Date.now()})); }catch(e){ handleIdbError(e); }
       recs.unshift({blob, name, dur:samples/s.rate, id, uploaded:false, accel:null});
