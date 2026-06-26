@@ -100,6 +100,7 @@
     <div class="timer" id="timer">00:00</div>
     <button class="recbtn" id="recbtn" onclick="toggle()"></button>
     <div class="err" id="err"></div>
+    <p class="note" id="accelnote" style="text-align:center;margin-top:6px"></p>
   </div>
 
   <div class="card" style="text-align:center;padding:12px 16px"><button id="sharelink" onclick="shareRecorderLink()" style="background:transparent;border:1px solid var(--line);color:var(--muted);border-radius:10px;padding:9px 18px;font-size:14px;font-weight:600;cursor:pointer;width:100%"></button></div>
@@ -139,6 +140,7 @@ const STR = {
   stall:{pt:"⚠️ Microfone travou — a tela apagou? A captura parou.", en:"⚠️ Mic stalled — did the screen sleep? Capture stopped."},
   keepawake:{pt:"⚠️ Mantenha a tela ligada (desative o bloqueio automático) — em captura longa, a tela apagada interrompe a gravação.", en:"⚠️ Keep the screen on (disable auto-lock) — on a long capture, a sleeping screen stops the recording."},
   recovered:{pt:"✅ {n} gravação(ões) recuperada(s) de uma sessão interrompida — toque Enviar.", en:"✅ Recovered {n} recording(s) from an interrupted session — tap Send."},
+  accelOff:{pt:"📈 Acelerômetro desligado — ative Movimento e Orientação nos Ajustes do Safari/Arc.", en:"📈 Accelerometer off — enable Motion & Orientation Access in Safari/Arc settings."},
   quota:{pt:"⚠️ Armazenamento cheio — toque Enviar e apague gravações.", en:"⚠️ Storage full — Send then delete recordings."},
   foot:{pt:"Tudo fica no seu celular. Nada é enviado sozinho. Funciona offline depois de abrir.",
         en:"Everything stays on your phone. Nothing is sent automatically. Works offline once loaded."},
@@ -193,7 +195,7 @@ const MODES = {
   },
 };
 
-const VERSION = "v1.5 · accel";   // bump on every recorder change; shown at top so a stale cache is obvious
+const VERSION = "v1.6 · accel";   // bump on every recorder change; shown at top so a stale cache is obvious
 
 // ---- Supabase upload config (replace placeholders to enable; keep placeholders to deploy safe) ----
 // UNCONFIGURED BUILD: placeholder url does not match ^https:// → UPLOAD_ENABLED = false →
@@ -406,7 +408,7 @@ async function start(){
   source.connect(processor); processor.connect(zero); zero.connect(ctx.destination);
   recording=true; startMs=Date.now(); setRecUI();
   // Start accelerometer logging (ADDITIVE, non-fatal; requestPermission valid here on user gesture)
-  accelSamples = []; accelOK = false;
+  accelSamples = []; accelOK = false; el("accelnote").textContent = "";
   try{
     if(typeof DeviceMotionEvent !== "undefined" && typeof DeviceMotionEvent.requestPermission === "function"){
       try{ await DeviceMotionEvent.requestPermission(); }catch(e){ /* user declined / non-secure ctx — keep recording without accel */ }
@@ -416,6 +418,7 @@ async function start(){
       window.addEventListener("devicemotion", _accelHandler);
     }
   }catch(e){ /* accel is best-effort; never block audio capture */ }
+  setTimeout(()=>{ if(recording && !accelOK){ el("accelnote").textContent = tt(STR.accelOff); } }, 1500);  // ~1.5s in: if no motion samples arrived, tell the user (no silent drop)
   acquireWakeLock();
   if(!visHandlerBound){ visHandlerBound=true; document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='visible' && recording) acquireWakeLock(); }); }
   ctx.onstatechange = ()=>{ if(recording && (ctx.state==='suspended'||ctx.state==='interrupted')){ ctx.resume().catch(()=>{}); } };
