@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Ozni — how a phone hears a gunshot</title>
+<style>
+  :root{
+    --bg:#070a10; --bg2:#0e1320; --panel:#121826; --line:#1f2738;
+    --ink:#eef2fb; --muted:#8a94a9; --faint:#5a6479;
+    --shot:#ff8a3d; --shot2:#ffd089; --fire:#e85d9b; --calm:#46d6c4; --violet:#a98bff;
+    --maxw:760px;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;
+    line-height:1.65;-webkit-font-smoothing:antialiased;overflow-x:hidden}
+  .mono{font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace}
+  #prog{position:fixed;top:0;left:0;height:3px;width:0;z-index:50;
+    background:linear-gradient(90deg,var(--shot),var(--fire),var(--calm));box-shadow:0 0 12px rgba(255,138,61,.5)}
+  /* sound toggle */
+  .mute{position:fixed;top:12px;right:12px;z-index:60;width:44px;height:44px;border-radius:50%;
+    background:var(--panel);border:1px solid var(--line);color:var(--ink);font-size:19px;cursor:pointer;
+    display:flex;align-items:center;justify-content:center;box-shadow:0 4px 14px rgba(0,0,0,.45);-webkit-tap-highlight-color:transparent}
+  .mute.off{opacity:.5}
+  /* hero */
+  .hero{position:relative;min-height:100vh;min-height:100svh;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;padding:24px;overflow:hidden}
+  .hero canvas{position:absolute;inset:0;width:100%;height:100%;opacity:.55}
+  .hero .inner{position:relative;z-index:2;max-width:780px}
+  .kicker{font-size:13px;letter-spacing:.28em;text-transform:uppercase;color:var(--shot);font-weight:700;margin-bottom:18px}
+  .hero h1{font-size:clamp(34px,7vw,76px);line-height:1.05;margin:0 0 18px;font-weight:800;letter-spacing:-.02em}
+  .hero h1 em{font-style:normal;background:linear-gradient(90deg,var(--shot),var(--fire));-webkit-background-clip:text;background-clip:text;color:transparent}
+  .hero p{font-size:clamp(16px,2.4vw,21px);color:var(--muted);max-width:600px;margin:0 auto}
+  .scrollcue{position:absolute;bottom:26px;left:50%;transform:translateX(-50%);color:var(--faint);font-size:12px;letter-spacing:.2em;text-transform:uppercase;z-index:2;animation:bob 2.2s ease-in-out infinite}
+  @keyframes bob{0%,100%{transform:translateX(-50%) translateY(0);opacity:.6}50%{transform:translateX(-50%) translateY(8px);opacity:1}}
+  section.concept{max-width:var(--maxw);margin:0 auto;padding:11vh 24px}
+  .num{font:700 13px/1 ui-monospace,monospace;color:var(--shot);letter-spacing:.2em;margin-bottom:14px;opacity:.85}
+  section.concept h2{font-size:clamp(25px,4.4vw,40px);line-height:1.12;margin:0 0 16px;font-weight:800;letter-spacing:-.02em}
+  section.concept p{font-size:clamp(16px,2.2vw,18px);color:#c4ccdb;margin:0 0 14px}
+  section.concept p .hi{color:var(--shot);font-weight:600}
+  section.concept p .hi2{color:var(--calm);font-weight:600}
+  .viz{margin:26px 0 8px;background:linear-gradient(180deg,var(--bg2),var(--panel));border:1px solid var(--line);border-radius:16px;padding:18px;position:relative;overflow:hidden}
+  .viz canvas{display:block;width:100%;border-radius:8px}
+  .vlabel{font:600 12px/1 ui-monospace,monospace;color:var(--faint);letter-spacing:.12em;text-transform:uppercase;margin-bottom:12px}
+  .controls{display:flex;flex-wrap:wrap;gap:14px;align-items:center;margin-top:16px}
+  .ctl{flex:1;min-width:180px}
+  .ctl label{display:flex;justify-content:space-between;font:600 12px/1.4 ui-monospace,monospace;color:var(--muted);margin-bottom:8px;text-transform:uppercase;letter-spacing:.08em}
+  .ctl label b{color:var(--ink)}
+  input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:6px;border-radius:6px;background:var(--line);outline:none}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:24px;height:24px;border-radius:50%;background:var(--shot);cursor:pointer;box-shadow:0 0 0 4px rgba(255,138,61,.2),0 2px 8px rgba(0,0,0,.5)}
+  input[type=range]::-moz-range-thumb{width:24px;height:24px;border:none;border-radius:50%;background:var(--shot);cursor:pointer}
+  /* play buttons */
+  .playrow{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px}
+  .play{display:inline-flex;align-items:center;gap:8px;background:rgba(255,138,61,.12);color:var(--shot);
+    border:1px solid rgba(255,138,61,.32);border-radius:999px;padding:11px 17px;font:700 13px/1 ui-monospace,monospace;
+    cursor:pointer;min-height:44px;transition:.15s;-webkit-tap-highlight-color:transparent}
+  .play:hover{background:rgba(255,138,61,.22)}
+  .play:active{transform:scale(.95)}
+  .play.fire{background:rgba(232,93,155,.12);color:var(--fire);border-color:rgba(232,93,155,.32)}
+  .play.fire:hover{background:rgba(232,93,155,.22)}
+  .play.calm{background:rgba(70,214,196,.12);color:var(--calm);border-color:rgba(70,214,196,.32)}
+  .play.calm:hover{background:rgba(70,214,196,.22)}
+  .play.pulse{animation:ping .45s ease}
+  @keyframes ping{0%{box-shadow:0 0 0 0 rgba(255,255,255,.35)}100%{box-shadow:0 0 0 14px rgba(255,255,255,0)}}
+  .reveal{opacity:0;transform:translateY(26px);transition:opacity .8s cubic-bezier(.2,.7,.2,1),transform .8s cubic-bezier(.2,.7,.2,1)}
+  .reveal.in{opacity:1;transform:none}
+  .pair{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  @media(max-width:560px){.pair{grid-template-columns:1fr}section.concept{padding:9vh 18px}.viz{padding:14px}}
+  .tag{display:inline-block;font:700 11px/1 ui-monospace,monospace;letter-spacing:.1em;text-transform:uppercase;padding:5px 9px;border-radius:6px;margin-bottom:10px}
+  .tag.shot{background:rgba(255,138,61,.14);color:var(--shot)}
+  .tag.fire{background:rgba(232,93,155,.14);color:var(--fire)}
+  .readout{font:700 14px/1.55 ui-monospace,monospace;color:var(--muted);margin-top:14px}
+  .readout b{color:var(--ink)}
+  .meters{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:18px}
+  .meter h4{margin:0 0 8px;font:700 12px/1 ui-monospace,monospace;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+  .bar{height:14px;border-radius:8px;background:var(--line);overflow:hidden}
+  .bar i{display:block;height:100%;width:0;border-radius:8px;transition:width .25s ease}
+  .meterval{font:800 26px/1.1 ui-monospace,monospace;margin-top:8px}
+  .callout{border-left:3px solid var(--shot);padding:4px 0 4px 16px;color:var(--muted);font-size:16px;margin:18px 0}
+  .pipeline{display:flex;align-items:stretch;gap:10px;flex-wrap:wrap;justify-content:center}
+  .stage{flex:1;min-width:120px;text-align:center;border:1px solid var(--line);border-radius:12px;padding:16px 12px;background:var(--panel);transition:.3s}
+  .stage .ico{font-size:26px;margin-bottom:6px}
+  .stage h5{margin:0 0 4px;font-size:14px}
+  .stage small{color:var(--faint);font-size:12px}
+  .stage.lit{border-color:var(--shot);box-shadow:0 0 0 1px var(--shot),0 0 22px rgba(255,138,61,.25);transform:translateY(-3px)}
+  footer{max-width:var(--maxw);margin:0 auto;padding:8vh 24px 14vh;text-align:center;color:var(--faint);font-size:14px;border-top:1px solid var(--line)}
+  footer b{color:var(--muted)}
+  .jarrow{display:flex;gap:24px;align-items:flex-end;justify-content:center;margin-top:10px}
+  .jar{text-align:center;flex:1;max-width:220px}
+  .jar .vessel{height:150px;border:2px solid var(--line);border-radius:10px;position:relative;overflow:hidden;background:rgba(255,255,255,.02)}
+  .jar .fill{position:absolute;bottom:0;left:0;right:0;transition:height 1.1s cubic-bezier(.2,.7,.2,1)}
+  .jar h4{margin:12px 0 2px;font-size:15px}
+  .jar small{color:var(--faint)}
+  @media(prefers-reduced-motion:reduce){*{animation-duration:.01ms!important;transition-duration:.01ms!important}.scrollcue{animation:none}}
+</style>
+</head>
+<body>
+<div id="prog"></div>
+<button id="muteBtn" class="mute" aria-label="toggle sound" title="sound on / off">🔊</button>
+
+<header class="hero">
+  <canvas id="heroWave"></canvas>
+  <div class="inner">
+    <div class="kicker">Ozni · gunshot detection</div>
+    <h1>Can a phone tell a <em>gunshot</em> from a <em>firework</em>?</h1>
+    <p>Ozni turns ordinary smartphones into a gunshot-detection network for community sites. Here's the whole idea — and the one hard problem at its heart — with no jargon, and <b style="color:var(--ink)">real sound</b> (turn it up 🔊). Scroll.</p>
+  </div>
+  <div class="scrollcue">scroll ↓</div>
+</header>
+
+<section class="concept reveal" data-viz="sine">
+  <div class="num">01 — THE RAW MATERIAL</div>
+  <h2>Sound is just a wiggle in the air</h2>
+  <p>Every sound is air pressure wobbling back and forth. A microphone feels those wobbles and writes them down as a wiggly line — about <span class="hi">48,000 dots every second</span>.</p>
+  <p>Two things describe any wiggle: how <b>tall</b> it is (loudness) and how <b>fast</b> it repeats (pitch). Drag the sliders — and tap to <b>hear</b> the tone change.</p>
+  <div class="viz">
+    <div class="vlabel">a single pure tone — your microphone's view</div>
+    <canvas id="sineCv" height="180"></canvas>
+    <div class="controls">
+      <div class="ctl"><label>Loudness <b id="loudV">medium</b></label><input id="loud" type="range" min="5" max="95" value="55"></div>
+      <div class="ctl"><label>Pitch <b id="pitchV">220 Hz</b></label><input id="pitch" type="range" min="60" max="900" value="220"></div>
+    </div>
+    <div class="playrow"><button class="play calm" id="sinePlay">🔊 hear the tone</button></div>
+  </div>
+</section>
+
+<section class="concept reveal" data-viz="shapes">
+  <div class="num">02 — THE FIRST CLUE</div>
+  <h2>A gunshot is a punch, not a song</h2>
+  <p>A voice rises and falls gently. A gunshot is a near-instant <span class="hi">slam</span>: silence, then a wall of sound in under a thousandth of a second, then gone. That violently fast "attack" is the first thing a detector looks for.</p>
+  <p>A firecracker string is different again — a rattle of many little pops. Watch the three draw themselves, then <b>hear</b> each one.</p>
+  <div class="viz">
+    <div class="vlabel">same mic, three very different shapes</div>
+    <canvas id="shapesCv" height="300"></canvas>
+    <div class="playrow"><button class="play calm" data-sound="voice">🔊 voice</button><button class="play" data-sound="gunshot">🔊 gunshot</button><button class="play fire" data-sound="firecracker">🔊 firecracker</button></div>
+  </div>
+</section>
+
+<section class="concept reveal" data-viz="spec">
+  <div class="num">03 — THE HIDDEN COLOR</div>
+  <h2>Every sound has a color</h2>
+  <p>Pull any sound apart and it's a stack of pitches at once, like a chord. <span class="hi2">Low pitches</span> are boom and bass; <span class="hi">high pitches</span> are bright and sharp.</p>
+  <p>A <b>spectrogram</b> paints that: time runs left→right, pitch runs bottom→top, and brightness is how much energy sits there. A gunshot shows up as a bright vertical slash — a burst of <em>every</em> pitch at the same instant.</p>
+  <div class="viz">
+    <div class="vlabel">spectrogram of a gunshot — real FFT of a modeled crack</div>
+    <canvas id="specCv" height="220"></canvas>
+    <div class="playrow"><button class="play" data-sound="gunshot">🔊 hear this gunshot</button></div>
+  </div>
+</section>
+
+<section class="concept reveal" data-viz="twins">
+  <div class="num">04 — THE WHOLE PROBLEM</div>
+  <h2>A big firework is a gunshot's twin</h2>
+  <p>Here's the question everything hinges on. A single large firework — a Brazilian <span class="hi">bomba</span> — is <em>also</em> one loud, broadband slam. Put them side by side and, to a phone, they look almost identical.</p>
+  <p>This is the kill-or-cure question: if a phone genuinely can't separate these two, the product can't work. So far, the honest answer is <b>"this is hard."</b></p>
+  <div class="viz">
+    <div class="pair">
+      <div><span class="tag shot">gunshot</span><canvas class="twinCv" id="twinGun" height="150"></canvas></div>
+      <div><span class="tag fire">firework · bomba</span><canvas class="twinCv" id="twinBomba" height="150"></canvas></div>
+    </div>
+    <div class="pair" style="margin-top:14px">
+      <canvas class="twinCv" id="twinGunS" height="120"></canvas>
+      <canvas class="twinCv" id="twinBombaS" height="120"></canvas>
+    </div>
+    <div class="readout">They look like twins — now <b>listen.</b> The only real tell is a faint low boom in the firework, and the next two sections show why even that often gets erased.</div>
+    <div class="playrow"><button class="play" data-sound="gunshot">🔊 gunshot</button><button class="play fire" data-sound="bomba">🔊 bomba</button></div>
+  </div>
+</section>
+
+<section class="concept reveal" data-viz="clip">
+  <div class="num">05 — WHERE INFO IS LOST (1)</div>
+  <h2>Too loud, and the mic gives up</h2>
+  <p>Every microphone has a ceiling. A close gunshot is far over it, so the tops of the wiggle get <span class="hi">sliced flat</span> — "clipping." The sharp punch we needed to recognize is blunted into a flat-topped mush. Turn it up and watch — and hear — it break.</p>
+  <div class="viz">
+    <div class="vlabel">drag the volume past the mic's ceiling</div>
+    <canvas id="clipCv" height="190"></canvas>
+    <div class="controls">
+      <div class="ctl"><label>Volume at the mic <b id="clipV">safe</b></label><input id="clip" type="range" min="10" max="100" value="35"></div>
+      <button class="play" id="clipPlay">🔊 hear it</button>
+    </div>
+    <div class="readout" id="clipMsg">Below the ceiling — the transient is intact.</div>
+  </div>
+</section>
+
+<section class="concept reveal" data-viz="dist">
+  <div class="num">06 — WHERE INFO IS LOST (2)</div>
+  <h2>Distance and an open window dull everything</h2>
+  <p>Sound loses its <span class="hi">high pitches</span> as it travels, and a wall or window strips them faster. From across the street, a sharp crack arrives as a soft thud, smeared with echo.</p>
+  <p class="callout">A match heard in a living room, near the TV, window open, is exactly this: a real sound, softened and blurred by the room and the open window, buried in street noise. That's the world Ozni actually has to work in.</p>
+  <p>Slide to move the source away — watch the bright top of the spectrogram fade, and <b>hear</b> it muffle.</p>
+  <div class="viz">
+    <div class="vlabel">the same gunshot, heard from farther and farther</div>
+    <canvas id="distCv" height="200"></canvas>
+    <div class="controls">
+      <div class="ctl"><label>Distance to the source <b id="distV">5 m</b></label><input id="dist" type="range" min="0" max="100" value="10"></div>
+      <button class="play" id="distPlay">🔊 hear it</button>
+    </div>
+    <div class="readout">Brightness (avg pitch): <b id="distCen">—</b> · Loudness: <b id="distLoud">—</b><br><span style="color:var(--faint)">As it dulls, the gunshot drifts toward looking like… a distant firework. That's the trap.</span></div>
+  </div>
+</section>
+
+<section class="concept reveal" data-viz="pipe">
+  <div class="num">07 — HOW OZNI LISTENS</div>
+  <h2>Two steps: a bouncer, then a judge</h2>
+  <p>Listening to everything with a heavy AI model would drain the battery in an hour. So Ozni uses a cheap <span class="hi">bouncer</span> first: it sleeps through the hum of the world and only wakes on a sudden bang.</p>
+  <p>Then the <span class="hi2">judge</span> — a trained model — studies that one bang and asks: gunshot, or firework? Only a confident <em>gunshot</em> raises an alarm. Watch a sound travel through.</p>
+  <div class="viz">
+    <div class="pipeline" id="pipe">
+      <div class="stage" data-s="0"><div class="ico">🎤</div><h5>Always listening</h5><small>raw mic, on-device</small></div>
+      <div class="stage" data-s="1"><div class="ico">⚡</div><h5>Bouncer</h5><small>"was that a bang?"</small></div>
+      <div class="stage" data-s="2"><div class="ico">🧠</div><h5>Judge</h5><small>"shot or firework?"</small></div>
+      <div class="stage" data-s="3"><div class="ico">🚨</div><h5>Alert</h5><small>only if confident</small></div>
+    </div>
+    <div class="readout" id="pipeMsg" style="text-align:center">A bang arrives…</div>
+  </div>
+</section>
+
+<section class="concept reveal" data-viz="roc">
+  <div class="num">08 — THE REAL TENSION</div>
+  <h2>The crying-wolf dial</h2>
+  <p>Here's the trade nobody escapes. Make the judge <span class="hi">twitchy</span> and it catches every real shot — but screams at every firework. Make it <span class="hi2">calm</span> and it never false-alarms — but might sleep through the real thing.</p>
+  <p>The whole job is one sweet spot: catch ~9 of 10 real shots <em>while</em> staying silent through a fireworks-filled night. Find it.</p>
+  <div class="viz">
+    <div class="vlabel">drag the judge's sensitivity</div>
+    <input id="roc" type="range" min="0" max="100" value="50" style="margin:6px 0 4px">
+    <div class="meters">
+      <div class="meter"><h4 style="color:var(--calm)">Real shots caught</h4><div class="bar"><i id="recallBar" style="background:var(--calm)"></i></div><div class="meterval mono" id="recallV" style="color:var(--calm)">—</div></div>
+      <div class="meter"><h4 style="color:var(--shot)">False alarms / night</h4><div class="bar"><i id="faBar" style="background:var(--shot)"></i></div><div class="meterval mono" id="faV" style="color:var(--shot)">—</div></div>
+    </div>
+    <div class="readout" id="rocMsg" style="text-align:center;margin-top:18px">—</div>
+  </div>
+</section>
+
+<section class="concept reveal" data-viz="data">
+  <div class="num">09 — WHAT'S LEFT</div>
+  <h2>We have the "no." We need the "yes."</h2>
+  <p>Teaching the judge needs examples of both. Examples of what <span class="hi2">isn't</span> a gunshot are everywhere — every match, every New Year's, every firework night fills the jar.</p>
+  <p>What we don't have yet is the real thing: actual <span class="hi">gunshots</span>, recorded on a phone, at honest distances. A few hundred of those flips this from <em>"unknown"</em> to <em>"measurable."</em> That's the next step — a day at a range.</p>
+  <div class="viz">
+    <div class="jarrow">
+      <div class="jar"><div class="vessel"><div class="fill" id="negFill" style="height:0;background:linear-gradient(180deg,var(--calm),#2b8f86)"></div></div><h4 style="color:var(--calm)">Not-a-gunshot</h4><small>plentiful · ~hours, growing</small></div>
+      <div class="jar"><div class="vessel"><div class="fill" id="posFill" style="height:0;background:linear-gradient(180deg,var(--shot),#a8521f)"></div></div><h4 style="color:var(--shot)">Real gunshots</h4><small>the blocker · ~empty</small></div>
+    </div>
+    <div class="readout" style="text-align:center;margin-top:20px">The bottleneck isn't hours of audio — it's the <b>first real gunshots</b>.</div>
+  </div>
+</section>
+
+<footer>
+  <p><b>Ozni</b> — gunshot detection &amp; community alert. Built first for Jewish community sites in Rio de Janeiro.</p>
+  <p style="margin-top:6px">Every sound here is modeled and both drawn and played live in your browser to teach the idea — the real science lives in the recordings.</p>
+</footer>
+
+<script>
+"use strict";
+const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+const prog=document.getElementById('prog');
+addEventListener('scroll',()=>{const h=document.documentElement;prog.style.width=(h.scrollTop/(h.scrollHeight-h.clientHeight)*100)+'%';},{passive:true});
+
+function fit(cv,h){const dpr=Math.min(devicePixelRatio||1,2);const w=cv.clientWidth;cv.width=w*dpr;cv.height=h*dpr;const ctx=cv.getContext('2d');ctx.setTransform(dpr,0,0,dpr,0,0);return{ctx,w,h};}
+
+function fft(re,im){const n=re.length;for(let i=1,j=0;i<n;i++){let bit=n>>1;for(;j&bit;bit>>=1)j^=bit;j^=bit;if(i<j){const tr=re[i];re[i]=re[j];re[j]=tr;const ti=im[i];im[i]=im[j];im[j]=ti;}}for(let len=2;len<=n;len<<=1){const ang=-2*Math.PI/len,wr=Math.cos(ang),wi=Math.sin(ang);for(let i=0;i<n;i+=len){let cr=1,ci=0;for(let k=0;k<len>>1;k++){const a=i+k,b=a+(len>>1);const vr=re[b]*cr-im[b]*ci,vi=re[b]*ci+im[b]*cr;re[b]=re[a]-vr;im[b]=im[a]-vi;re[a]+=vr;im[a]+=vi;const ncr=cr*wr-ci*wi;ci=cr*wi+ci*wr;cr=ncr;}}}}
+
+/* sound models (sr 16000 for crisper audio + spectrograms; ~0.5 s) */
+const SR=16000, N=8192;
+function rng(seed){let s=seed>>>0;return()=>{s=(s*1664525+1013904223)>>>0;return s/4294967296*2-1;}}
+function env(n,k){const e=new Float64Array(n);for(let i=0;i<n;i++)e[i]=Math.exp(-k*i/n);return e;}
+function gunshot(seed=7){const x=new Float64Array(N);const r=rng(seed);const t0=Math.floor(N*0.18);
+  const bl=Math.floor(SR*0.005);const be=env(bl,9);for(let i=0;i<bl;i++){let a=i<3?i/3:1;x[t0+i]=r()*be[i]*a;}
+  const tl=Math.floor(SR*0.13);const te=env(tl,6);let p=0;for(let i=0;i<tl;i++){p=p+0.45*(r()-p);x[t0+i]+=p*te[i]*0.5;}
+  return norm(x);}
+function bomba(seed=3){const x=new Float64Array(N);const r=rng(seed);const t0=Math.floor(N*0.18);
+  const bl=Math.floor(SR*0.006);const be=env(bl,8);for(let i=0;i<bl;i++){let a=i<6?i/6:1;x[t0+i]=r()*be[i]*a;}
+  const tl=Math.floor(SR*0.18);const te=env(tl,5);for(let i=0;i<tl;i++){const t=i/SR;x[t0+i]+=Math.sin(2*Math.PI*90*t)*te[i]*0.32+(r())*te[i]*0.12;}
+  return norm(x);}
+function fireworkString(seed=11){const x=new Float64Array(N);const r=rng(seed);const k=16;const span=Math.floor(SR*0.34);const start=Math.floor(N*0.12);
+  for(let j=0;j<k;j++){const pos=start+Math.floor((r()*0.5+0.5)*span);const len=Math.floor(SR*(0.003+(r()*0.5+0.5)*0.005));const pe=env(len,6);for(let i=0;i<len&&pos+i<N;i++){let a=i<len*0.3?i/(len*0.3):1;x[pos+i]+=r()*pe[i]*a*(0.4+(r()*0.5+0.5)*0.6);}}
+  return norm(x);}
+function voice(seed=5){const x=new Float64Array(N);const f0=160;for(let i=0;i<N;i++){const t=i/SR;const syl=0.5+0.5*Math.sin(2*Math.PI*3*t);x[i]=(Math.sin(2*Math.PI*f0*t)+0.5*Math.sin(2*Math.PI*2*f0*t)+0.3*Math.sin(2*Math.PI*3.2*f0*t))*syl;}return norm(x);}
+function norm(x){let m=1e-9;for(const v of x)m=Math.max(m,Math.abs(v));for(let i=0;i<x.length;i++)x[i]/=m;return x;}
+function lowpass(x,cutoff,stages=3){const y=x.slice();const dt=1/SR,rc=1/(2*Math.PI*Math.max(40,cutoff)),a=dt/(rc+dt);for(let s=0;s<stages;s++){let p=0;for(let i=0;i<y.length;i++){p=p+a*(y[i]-p);y[i]=p;}}return y;}
+function gainSig(x,g){return x.map(v=>v*g);}
+function clipSig(x,th){return x.map(v=>Math.max(-th,Math.min(th,v)));}
+function centroidHz(x){const n=2048;const re=new Float64Array(n),im=new Float64Array(n);const off=Math.floor(N*0.18);for(let i=0;i<n;i++)re[i]=(x[off+i]||0)*(0.5-0.5*Math.cos(2*Math.PI*i/(n-1)));fft(re,im);let num=0,den=0;for(let k=1;k<n/2;k++){const m=Math.hypot(re[k],im[k]);const f=k*SR/n;num+=f*m;den+=m;}return den>0?num/den:0;}
+
+const MAG=[[0,0,4],[40,11,84],[101,21,110],[159,42,99],[212,72,66],[245,125,21],[252,193,70],[252,253,191]];
+function magma(t){t=Math.max(0,Math.min(1,t));const f=t*(MAG.length-1);const i=Math.floor(f);const a=MAG[i],b=MAG[Math.min(MAG.length-1,i+1)];const u=f-i;return`rgb(${a[0]+(b[0]-a[0])*u|0},${a[1]+(b[1]-a[1])*u|0},${a[2]+(b[2]-a[2])*u|0})`;}
+
+function drawWave(ctx,w,h,x,color,prog=1){ctx.clearRect(0,0,w,h);const mid=h/2;ctx.strokeStyle='rgba(255,255,255,.05)';ctx.beginPath();ctx.moveTo(0,mid);ctx.lineTo(w,mid);ctx.stroke();const upto=Math.floor(x.length*prog);ctx.beginPath();ctx.lineWidth=1.4;ctx.strokeStyle=color;for(let px=0;px<w;px++){const idx=Math.floor(px/w*x.length);if(idx>upto)break;const v=x[idx]||0;const y=mid-v*mid*0.92;if(px===0)ctx.moveTo(px,y);else ctx.lineTo(px,y);}ctx.stroke();ctx.shadowColor=color;ctx.shadowBlur=8;ctx.stroke();ctx.shadowBlur=0;}
+function drawSpec(ctx,w,h,x){const nfft=256,hop=64;const frames=[];let mx=1e-9;for(let s=0;s+nfft<=x.length;s+=hop){const re=new Float64Array(nfft),im=new Float64Array(nfft);for(let i=0;i<nfft;i++)re[i]=x[s+i]*(0.5-0.5*Math.cos(2*Math.PI*i/(nfft-1)));fft(re,im);const mag=new Float64Array(nfft/2);for(let k=0;k<nfft/2;k++){mag[k]=Math.hypot(re[k],im[k]);if(mag[k]>mx)mx=mag[k];}frames.push(mag);}const nb=nfft/2;ctx.clearRect(0,0,w,h);const cw=w/frames.length,ch=h/nb;for(let t=0;t<frames.length;t++)for(let k=0;k<nb;k++){const db=20*Math.log10((frames[t][k]/mx)+1e-6);const v=(db+55)/55;if(v<=0)continue;ctx.fillStyle=magma(v);ctx.fillRect(t*cw,h-(k+1)*ch,cw+1,ch+1);}}
+
+/* ---------- AUDIO: play the exact synthesized samples ---------- */
+let AC=null, soundOn=true, sineOsc=null, sineGain=null, _clipSig=null, _distSig=null;
+function ac(){if(!AC){try{AC=new (window.AudioContext||window.webkitAudioContext)();}catch(e){}}if(AC&&AC.state==='suspended')AC.resume();return AC;}
+function playSamples(x,vol=0.5){if(!soundOn||!x)return;const c=ac();if(!c)return;const b=c.createBuffer(1,x.length,SR);const d=b.getChannelData(0);for(let i=0;i<x.length;i++)d[i]=Math.max(-1,Math.min(1,x[i]));const s=c.createBufferSource();s.buffer=b;const g=c.createGain();g.gain.value=vol;s.connect(g);g.connect(c.destination);s.start();}
+const SOUNDS={voice:[voice,0.16],gunshot:[gunshot,0.6],bomba:[bomba,0.6],firecracker:[fireworkString,0.5]};
+function updateSine(){const p=document.getElementById('pitch'),l=document.getElementById('loud');if(sineOsc&&p&&l){sineOsc.frequency.value=+p.value;sineGain.gain.value=soundOn?(l.value/100)*0.2:0;}}
+function pulse(b){b.classList.remove('pulse');void b.offsetWidth;b.classList.add('pulse');}
+
+/* ---------- section runners (lazy on scroll) ---------- */
+const inited={};
+const run={
+  sine(){const cv=document.getElementById('sineCv');let{ctx,w,h}=fit(cv,180);
+    const loud=document.getElementById('loud'),pitch=document.getElementById('pitch'),loudV=document.getElementById('loudV'),pitchV=document.getElementById('pitchV');
+    const sp=document.getElementById('sinePlay');
+    sp.onclick=()=>{const c=ac();if(!c)return;if(sineOsc){sineOsc.stop();sineOsc=null;sp.textContent='🔊 hear the tone';return;}sineOsc=c.createOscillator();sineGain=c.createGain();sineOsc.type='sine';sineOsc.connect(sineGain);sineGain.connect(c.destination);updateSine();sineOsc.start();sp.textContent='🔇 stop';};
+    loud.addEventListener('input',updateSine);pitch.addEventListener('input',updateSine);
+    let ph=0,vis=true;new IntersectionObserver(e=>{const v=e[0].isIntersecting;if(v&&!vis){vis=true;if(!reduceMotion)requestAnimationFrame(frame);}else vis=v;},{threshold:0}).observe(cv);
+    function frame(){({ctx,w,h}=fit(cv,180));const A=loud.value/100,f=+pitch.value;ph+=0.04;ctx.clearRect(0,0,w,h);const mid=h/2;ctx.strokeStyle='rgba(255,255,255,.05)';ctx.beginPath();ctx.moveTo(0,mid);ctx.lineTo(w,mid);ctx.stroke();ctx.beginPath();ctx.lineWidth=2;ctx.strokeStyle='#46d6c4';for(let px=0;px<=w;px++){const y=mid-Math.sin(px/w*Math.PI*2*(f/90)+ph)*A*mid*0.85;px?ctx.lineTo(px,y):ctx.moveTo(px,y);}ctx.shadowColor='#46d6c4';ctx.shadowBlur=10;ctx.stroke();ctx.shadowBlur=0;loudV.textContent=A<.33?'quiet':A<.7?'medium':'loud';pitchV.textContent=f+' Hz';if(vis&&!reduceMotion)requestAnimationFrame(frame);}
+    if(reduceMotion)frame();else requestAnimationFrame(frame);},
+  shapes(){const cv=document.getElementById('shapesCv');const sigs=[['a calm voice',voice(),'#a98bff'],['a gunshot',gunshot(),'#ff8a3d'],['a firecracker string',fireworkString(),'#e85d9b']];
+    let t0=null;function frame(ts){if(!t0)t0=ts;const el=reduceMotion?9:(ts-t0)/1000;const{ctx,w,h}=fit(cv,300);ctx.clearRect(0,0,w,h);const rowH=h/3;
+      sigs.forEach((s,i)=>{const pr=Math.max(0,Math.min(1,(el-i*0.7)/1.0));ctx.save();ctx.translate(0,i*rowH);ctx.fillStyle='rgba(255,255,255,.45)';ctx.font='600 12px ui-monospace,monospace';ctx.fillText(s[0],4,16);wa(ctx,w,rowH,s[1],s[2],pr,rowH/2);ctx.restore();});
+      if(el<3.2&&!reduceMotion)requestAnimationFrame(frame);}
+    function wa(ctx,w,h,x,color,prog,mid){ctx.strokeStyle='rgba(255,255,255,.04)';ctx.beginPath();ctx.moveTo(0,mid);ctx.lineTo(w,mid);ctx.stroke();const upto=Math.floor(x.length*prog);ctx.beginPath();ctx.lineWidth=1.3;ctx.strokeStyle=color;let st=false;for(let px=0;px<w;px++){const idx=Math.floor(px/w*x.length);if(idx>upto)break;const v=x[idx]||0;const y=mid-v*(mid-14)*0.92;if(!st){ctx.moveTo(px,y);st=true;}else ctx.lineTo(px,y);}ctx.shadowColor=color;ctx.shadowBlur=7;ctx.stroke();ctx.shadowBlur=0;}
+    requestAnimationFrame(frame);},
+  spec(){const cv=document.getElementById('specCv');const{ctx,w,h}=fit(cv,220);drawSpec(ctx,w,h,gunshot());ctx.fillStyle='rgba(255,255,255,.6)';ctx.font='600 11px ui-monospace,monospace';ctx.fillText('↑ high pitch (bright crack)',8,16);ctx.fillText('↓ low pitch (boom)',8,h-8);ctx.fillText('time →',w-58,h-8);},
+  twins(){const g=gunshot(),b=bomba();drawWave(...wh('twinGun',150),g,'#ff8a3d');drawWave(...wh('twinBomba',150),b,'#e85d9b');const a=document.getElementById('twinGunS'),c=document.getElementById('twinBombaS');{const f=fit(a,120);drawSpec(f.ctx,f.w,f.h,g);}{const f=fit(c,120);drawSpec(f.ctx,f.w,f.h,b);}},
+  clip(){const cv=document.getElementById('clipCv');const base=gunshot();const sl=document.getElementById('clip'),v=document.getElementById('clipV'),msg=document.getElementById('clipMsg');
+    document.getElementById('clipPlay').onclick=function(){pulse(this);playSamples(_clipSig||base,0.6);};
+    function upd(){const{ctx,w,h}=fit(cv,190);const g=sl.value/35;const sig=clipSig(gainSig(base,g),0.78);_clipSig=sig;const clipped=sig.filter((x)=>Math.abs(x)>=0.77).length;drawWave(ctx,w,h,sig,clipped>5?'#ff5b5b':'#ff8a3d');ctx.strokeStyle='rgba(255,91,91,.5)';ctx.setLineDash([5,5]);[0.78,-0.78].forEach(t=>{const y=h/2-t*h/2*0.92;ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(w,y);ctx.stroke();});ctx.setLineDash([]);v.textContent=g<1.6?'safe':g<2.4?'loud':'OVER ceiling';msg.innerHTML=clipped>40?'⚠️ Badly clipped — the punch is gone, it now reads like flat noise.':clipped>5?'Starting to clip — the peak is being sliced off.':'Below the ceiling — the transient is intact.';msg.style.color=clipped>40?'#ff5b5b':clipped>5?'#ffb347':'var(--muted)';}
+    sl.oninput=upd;upd();},
+  dist(){const cv=document.getElementById('distCv');const base=gunshot();const sl=document.getElementById('dist');const dv=document.getElementById('distV'),cen=document.getElementById('distCen'),loud=document.getElementById('distLoud');
+    document.getElementById('distPlay').onclick=function(){pulse(this);playSamples(_distSig||base,0.7);};
+    function upd(){const{ctx,w,h}=fit(cv,200);const d=+sl.value;const meters=Math.round(2+d*1.5);const cut=12000*Math.exp(-d/26)+400;const att=1/(1+d*0.09);let sig=lowpass(base,cut,3).map(x=>x*att);const rev=lowpass(base,cut,5);for(let i=0;i<sig.length;i++)sig[i]+=(rev[(i-440+N)%N]||0)*0.18*att;const flo=0.012*(d/100);const r=rng(99);for(let i=0;i<sig.length;i++)sig[i]+=r()*flo;_distSig=sig;drawSpec(ctx,w,h,sig);dv.textContent=meters+' m';cen.textContent=Math.round(centroidHz(base)*Math.exp(-d/30))+' Hz';loud.textContent=(att>0.7?'close & loud':att>0.4?'muffled':att>0.2?'faint':'barely there');}
+    sl.oninput=upd;upd();},
+  pipe(){const stages=[...document.querySelectorAll('#pipe .stage')];const msg=document.getElementById('pipeMsg');const lines=['A bang arrives…','Bouncer: "that was sudden — wake the judge."','Judge studies the shape & color…','Verdict: GUNSHOT — alert sent in seconds.'];const altLines=['A bang arrives…','Bouncer: "sudden — wake the judge."','Judge studies it…','Verdict: firework — stay quiet. ✓'];let step=0,gun=true;function tick(){stages.forEach((s,i)=>s.classList.toggle('lit',i===step));const L=gun?lines:altLines;msg.textContent=L[step];msg.style.color=step===3?(gun?'#ff8a3d':'#46d6c4'):'var(--muted)';stages[3].querySelector('.ico').textContent=(step===3&&!gun)?'🔕':'🚨';step++;if(step>3){step=0;gun=!gun;setTimeout(tick,1600);}else setTimeout(tick,1200);}tick();},
+  roc(){const sl=document.getElementById('roc');const rb=document.getElementById('recallBar'),fb=document.getElementById('faBar'),rv=document.getElementById('recallV'),fv=document.getElementById('faV'),msg=document.getElementById('rocMsg');
+    function upd(){const s=sl.value/100;const recall=Math.round(100*(1-Math.pow(1-s,2.2)));const fa=Math.round(Math.pow(s,2.4)*900);rb.style.width=recall+'%';rv.textContent=recall+'%';fb.style.width=Math.min(100,fa/9)+'%';fv.textContent=fa>0?fa:'~0';let m,c;if(recall>=88&&fa<=10){m='✅ The sweet spot: catches the shots, sleeps through fireworks. Rare and precious.';c='#46d6c4';}else if(fa>120){m='📣 Crying wolf — hundreds of false alarms a night. People stop trusting it.';c='#ff8a3d';}else if(recall<60){m='😴 Too calm — it would miss real shots. Unacceptable for a safety tool.';c='#ff5b5b';}else{m='Getting warmer — nudge toward the balance point.';c='var(--muted)';}msg.textContent=m;msg.style.color=c;}
+    sl.oninput=upd;upd();},
+  data(){document.getElementById('negFill').style.height='86%';document.getElementById('posFill').style.height='4%';}
+};
+function wh(id,h){const cv=document.getElementById(id);const f=fit(cv,h);return[f.ctx,f.w,f.h];}
+
+/* play buttons with a fixed sound (voice/gunshot/bomba/firecracker) */
+document.addEventListener('click',e=>{const b=e.target.closest('[data-sound]');if(!b)return;pulse(b);const s=SOUNDS[b.dataset.sound];if(s)playSamples(s[0](),s[1]);});
+/* mute toggle */
+document.getElementById('muteBtn').onclick=function(){soundOn=!soundOn;this.textContent=soundOn?'🔊':'🔇';this.classList.toggle('off',!soundOn);if(!soundOn&&sineOsc){sineOsc.stop();sineOsc=null;const s=document.getElementById('sinePlay');if(s)s.textContent='🔊 hear the tone';}updateSine();};
+
+/* hero animated wave (pauses off-screen + respects reduced motion) */
+(function(){const cv=document.getElementById('heroWave');let on=true;function frame(ts){const dpr=Math.min(devicePixelRatio||1,2);const w=cv.clientWidth,h=cv.clientHeight;cv.width=w*dpr;cv.height=h*dpr;const ctx=cv.getContext('2d');ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,w,h);const t=ts/1000;for(let layer=0;layer<3;layer++){ctx.beginPath();ctx.lineWidth=1.2;const cols=['rgba(255,138,61,',' rgba(232,93,155,','rgba(70,214,196,'];ctx.strokeStyle=cols[layer]+(0.25-layer*0.06)+')';for(let px=0;px<=w;px+=2){const n=Math.sin(px*0.011+t*(1.1+layer*0.4)+layer)*0.5+Math.sin(px*0.027-t*(0.7+layer*0.3))*0.5;const spike=Math.exp(-Math.pow(((px/w)-((t*0.12+layer*0.33)%1.3))*9,2))*(layer===1?1.4:0.4);const y=h/2+(n*22+spike*h*0.32)*(1+layer*0.2);px?ctx.lineTo(px,y):ctx.moveTo(px,y);}ctx.stroke();}if(on&&!reduceMotion)requestAnimationFrame(frame);}
+  if(reduceMotion)frame(0);else requestAnimationFrame(frame);
+  new IntersectionObserver(es=>{const v=es[0].isIntersecting;if(v&&!on){on=true;if(!reduceMotion)requestAnimationFrame(frame);}else on=v;},{threshold:0}).observe(document.querySelector('.hero'));})();
+
+/* reveal + lazy init */
+const io=new IntersectionObserver((es)=>{es.forEach(e=>{if(e.isIntersecting){e.target.classList.add('in');const k=e.target.dataset.viz;if(k&&!inited[k]){inited[k]=1;try{run[k]();}catch(err){console.error(k,err);}}}});},{threshold:0.18});
+document.querySelectorAll('.concept').forEach(s=>io.observe(s));
+addEventListener('resize',()=>{Object.keys(inited).forEach(k=>{try{run[k]&&run[k]();}catch(e){}});});
+</script>
+</body>
+</html>
