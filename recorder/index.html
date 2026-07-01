@@ -143,6 +143,7 @@ const STR = {
   recovered:{pt:"✅ {n} gravação(ões) recuperada(s) de uma sessão interrompida — toque Enviar.", en:"✅ Recovered {n} recording(s) from an interrupted session — tap Send."},
   accelOff:{pt:"📈 Acelerômetro desligado — ative Movimento e Orientação nos Ajustes do Safari/Arc.", en:"📈 Accelerometer off — enable Motion & Orientation Access in Safari/Arc settings."},
   devname:{pt:"Seu nome ou local (vai no nome do arquivo)", en:"Your name or place (goes in the file name)"},
+  nudge:{pt:"💡 Preencha \"seu nome ou local\" lá em cima — ajuda muito! (ou toque Enviar de novo pra enviar assim mesmo)", en:"💡 Fill in \"your name or place\" above — it really helps! (or tap Send again to send anyway)"},
   quota:{pt:"⚠️ Armazenamento cheio — toque Enviar e apague gravações.", en:"⚠️ Storage full — Send then delete recordings."},
   foot:{pt:"Tudo fica no seu celular. Nada é enviado sozinho. Funciona offline depois de abrir.",
         en:"Everything stays on your phone. Nothing is sent automatically. Works offline once loaded."},
@@ -197,7 +198,7 @@ const MODES = {
   },
 };
 
-const VERSION = "v1.7 · named";   // bump on every recorder change; shown at top so a stale cache is obvious
+const VERSION = "v1.8 · robusto";   // bump on every recorder change; shown at top so a stale cache is obvious
 
 // ---- Supabase upload config (replace placeholders to enable; keep placeholders to deploy safe) ----
 // UNCONFIGURED BUILD: placeholder url does not match ^https:// → UPLOAD_ENABLED = false →
@@ -604,14 +605,46 @@ function devSlug(){
 // does NOT retry on 4xx (bad request/policy — surface immediately).
 // All browser APIs (fetch, localStorage, crypto, setTimeout) are INSIDE function bodies
 // so they are never accessed during the Node shim eval. ----
-async function uploadRecording(rec){
+// Supabase rejects objects over ~50 MB (HTTP 413 — measured 2026-07-01). Long recordings are
+// auto-split into standalone WAV parts under this cap so a 20-min capture can't silently fail.
+const UPLOAD_MAX_BYTES = 40*1024*1024;   // 40 MB safety margin (~7 min @ 48 kHz mono 16-bit)
+
+function wavHeaderBytes(dataLen, rate){
+  const buf=new ArrayBuffer(44); const v=new DataView(buf);
+  const ws=(off,s)=>{ for(let i=0;i<s.length;i++) v.setUint8(off+i, s.charCodeAt(i)); };
+  ws(0,"RIFF"); v.setUint32(4,36+dataLen,true); ws(8,"WAVE"); ws(12,"fmt ");
+  v.setUint32(16,16,true); v.setUint16(20,1,true); v.setUint16(22,1,true);
+  v.setUint32(24,rate,true); v.setUint32(28,rate*2,true); v.setUint16(32,2,true); v.setUint16(34,16,true);
+  ws(36,"data"); v.setUint32(40,dataLen,true);
+  return buf;
+}
+
+// Split a standard 44-byte-header mono 16-bit WAV blob into independently playable part-WAVs.
+// Uses Blob.slice (lazy — no big copies in memory). Sample rate is read from the source header.
+async function splitWavForUpload(rec){
+  if(rec.blob.size <= UPLOAD_MAX_BYTES) return [{name:rec.name, blob:rec.blob}];
+  const head = new DataView(await rec.blob.slice(0,44).arrayBuffer());
+  const rate = head.getUint32(24,true) || 48000;
+  const pcmLen = rec.blob.size - 44;
+  let per = UPLOAD_MAX_BYTES - 44; per -= per % 2;              // even byte boundary = whole samples
+  const nParts = Math.ceil(pcmLen / per);
+  const parts = [];
+  for(let p=0; p<nParts; p++){
+    const a = 44 + p*per, b = Math.min(44 + (p+1)*per, rec.blob.size);
+    const name = rec.name.replace(/\.wav$/i, `_p${String(p+1).padStart(2,"0")}of${String(nParts).padStart(2,"0")}.wav`);
+    parts.push({name, blob:new Blob([wavHeaderBytes(b-a, rate), rec.blob.slice(a,b)], {type:"audio/wav"})});
+  }
+  return parts;
+}
+
+async function uploadOneBlob(name, blob){
   const deviceId = getDeviceId();
-  const path = `${UPLOAD.url}/storage/v1/object/${UPLOAD.bucket}/${deviceId}/${encodeURIComponent(rec.name)}`;
+  const path = `${UPLOAD.url}/storage/v1/object/${UPLOAD.bucket}/${deviceId}/${encodeURIComponent(name)}`;
   const headers = { "Authorization":`Bearer ${UPLOAD.anonKey}`, "apikey":UPLOAD.anonKey, "Content-Type":"audio/wav" };  // no x-upsert: insert-only RLS policy needs no UPDATE; paths are unique (deviceId + timestamp)
   let lastStatus = 0;
   for(let attempt=0; attempt<3; attempt++){
     try{
-      const res = await fetch(path, { method:"POST", headers, body:rec.blob });
+      const res = await fetch(path, { method:"POST", headers, body:blob });
       lastStatus = res.status;
       if(res.status===200 || res.status===201) return {ok:true, status:res.status};
       if(res.status>=400 && res.status<500) return {ok:false, status:res.status};   // policy/auth — no retry
@@ -619,6 +652,16 @@ async function uploadRecording(rec){
     if(attempt<2) await new Promise(r=>setTimeout(r, 800*(attempt+1)));   // backoff
   }
   return {ok:false, status:lastStatus};
+}
+
+async function uploadRecording(rec, onPart){
+  const parts = await splitWavForUpload(rec);
+  for(let i=0; i<parts.length; i++){
+    if(onPart) try{ onPart(i+1, parts.length); }catch(e){}
+    const res = await uploadOneBlob(parts[i].name, parts[i].blob);
+    if(!res.ok) return res;                    // clip stays local; button becomes tappable retry
+  }
+  return {ok:true, status:200};
 }
 
 function renderList(){
@@ -659,12 +702,20 @@ async function uploadAccelSidecar(rec){
 
 // ---- doUpload: drives the cloud button through dummy-proof states.
 // NEVER deletes or modifies the recording on failure — the clip stays in IDB and zip/WAV remain. ----
+let nameNudged = false;   // one-time, non-blocking: second tap always sends
 async function doUpload(i, btn){
   if(typeof navigator!=="undefined" && navigator.onLine===false){
     btn.className="cloud off"; btn.textContent=tt(STR.uploadOffline); return;   // recording untouched
   }
+  if(!getDeviceName() && !nameNudged){
+    nameNudged = true;
+    el("err").textContent = tt(STR.nudge);
+    try{ el("devname").focus(); el("devname").scrollIntoView({block:"center"}); }catch(e){}
+    return;   // recording untouched; next tap uploads regardless
+  }
+  el("err").textContent = "";
   btn.disabled=true; btn.className="cloud"; btn.textContent=tt(STR.uploadSending);
-  const res = await uploadRecording(recs[i]);
+  const res = await uploadRecording(recs[i], (p,n)=>{ if(n>1) btn.textContent = `${tt(STR.uploadSending)} ${p}/${n}`; });
   if(res.ok){
     recs[i].uploaded=true;
     btn.className="cloud ok"; btn.textContent=tt(STR.uploadDone);   // stays disabled
@@ -737,6 +788,16 @@ async function shareRecorderLink(){
   try{ await navigator.clipboard.writeText(url); el("err").textContent=tt(STR.linkCopied); }catch(e){}
 }
 
+// Deep link: ?modo=tiro (or ?mode=tiro / ?modo=fogos) opens directly in that mode — the link
+// sent to shooter groups lands on the right instructions with zero taps. Harness-safe (no location in shim).
+(function(){
+  try{
+    if(typeof location === "undefined" || !location.search) return;
+    const m = (new URLSearchParams(location.search).get("modo") || new URLSearchParams(location.search).get("mode") || "").toLowerCase();
+    if(m === "tiro" || m === "tiros") state.mode = "tiro";
+    else if(m === "fogos" || m === "fireworks") state.mode = "fogos";
+  }catch(e){ /* bad/absent URL params never break the page */ }
+})();
 el("label").value = MODES[state.mode].label0;
 el("devname").value = getDeviceName();
 el("devname").oninput = ()=>setDeviceName(el("devname").value);
