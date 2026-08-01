@@ -61,6 +61,8 @@
   .rec button.cloud.ok{background:var(--ok)}
   .rec button.cloud.fail{background:var(--danger)}
   .rec button.cloud.off{background:var(--amber);color:#1a1d24}
+  .rec button.sec.nudge{border-color:var(--amber);color:var(--amber);animation:ozniPulse 0.9s ease-in-out 3}
+  @keyframes ozniPulse{0%,100%{box-shadow:0 0 0 0 rgba(240,180,60,0)}50%{box-shadow:0 0 0 4px rgba(240,180,60,.35)}}
   .consent{color:var(--muted);font-size:12px;margin:8px 0 0;line-height:1.45}
 </style>
 </head>
@@ -128,6 +130,10 @@ const STR = {
   uploadSending:{pt:"Enviando…",                                        en:"Sending…"},
   uploadDone:   {pt:"✅ Enviado!",                                      en:"✅ Sent!"},
   uploadFail:   {pt:"❌ Falhou — toque pra tentar",                     en:"❌ Failed — tap to retry"},
+  uploadNet:    {pt:"❌ Rede instável — toque de novo (ou 📦 Zip)",       en:"❌ Unstable network — tap again (or 📦 Zip)"},
+  uploadServer: {pt:"❌ Servidor recusou — mande o 📦 Zip",              en:"❌ Server refused — send the 📦 Zip"},
+  uploadRetryNudge:{pt:"A gravação está salva no celular. Toque de novo, ou mande o 📦 Zip pelo WhatsApp (vai como documento).",
+                    en:"The recording is saved on your phone. Tap again, or send the 📦 Zip on WhatsApp (as a document)."},
   uploadOffline:{pt:"📡 Sem internet — conecte e toque de novo",         en:"📡 No internet — connect and tap again"},
   consent:      {pt:"Ao tocar Enviar, sua gravação vai pro Ozni pra pesquisa. Nada sai do celular até você enviar.",
                  en:"When you tap Send, your recording goes to Ozni for research. Nothing leaves your phone until you send it."},
@@ -198,7 +204,7 @@ const MODES = {
   },
 };
 
-const VERSION = "v1.8 · robusto";   // bump on every recorder change; shown at top so a stale cache is obvious
+const VERSION = "v1.9 · robusto";   // bump on every recorder change; shown at top so a stale cache is obvious
 
 // ---- Supabase upload config (replace placeholders to enable; keep placeholders to deploy safe) ----
 // UNCONFIGURED BUILD: placeholder url does not match ^https:// → UPLOAD_ENABLED = false →
@@ -637,31 +643,49 @@ async function splitWavForUpload(rec){
   return parts;
 }
 
+// A stalled fetch on flaky mobile data hangs forever (no default timeout) — the whole reason
+// Marcos's 44s clip showed "Falhou" on 4G: one big POST stalled and never resolved. Each attempt
+// now aborts after UPLOAD_TIMEOUT_MS so it retries instead of hanging, with more attempts, jittered
+// backoff, and a reason code ("net" | "server") so the UI can tell the user what to actually do.
+const UPLOAD_ATTEMPTS = 5;
+const UPLOAD_TIMEOUT_MS = 90000;   // 90s/attempt — generous for a multi-MB POST, but bounded
+
 async function uploadOneBlob(name, blob){
   const deviceId = getDeviceId();
   const path = `${UPLOAD.url}/storage/v1/object/${UPLOAD.bucket}/${deviceId}/${encodeURIComponent(name)}`;
   const headers = { "Authorization":`Bearer ${UPLOAD.anonKey}`, "apikey":UPLOAD.anonKey, "Content-Type":"audio/wav" };  // no x-upsert: insert-only RLS policy needs no UPDATE; paths are unique (deviceId + timestamp)
-  let lastStatus = 0;
-  for(let attempt=0; attempt<3; attempt++){
+  let lastStatus = 0, reason = "net";
+  for(let attempt=0; attempt<UPLOAD_ATTEMPTS; attempt++){
+    const ctrl = (typeof AbortController!=="undefined") ? new AbortController() : null;
+    const timer = ctrl ? setTimeout(()=>{ try{ ctrl.abort(); }catch(e){} }, UPLOAD_TIMEOUT_MS) : null;
     try{
-      const res = await fetch(path, { method:"POST", headers, body:blob });
+      const res = await fetch(path, { method:"POST", headers, body:blob, signal: ctrl ? ctrl.signal : undefined });
       lastStatus = res.status;
-      if(res.status===200 || res.status===201) return {ok:true, status:res.status};
-      if(res.status>=400 && res.status<500) return {ok:false, status:res.status};   // policy/auth — no retry
-    }catch(e){ lastStatus = 0; }   // network error → retry
-    if(attempt<2) await new Promise(r=>setTimeout(r, 800*(attempt+1)));   // backoff
+      if(res.status===200 || res.status===201) return {ok:true, status:res.status, reason:"ok"};
+      if(res.status>=400 && res.status<500) return {ok:false, status:res.status, reason:"server"};   // policy/auth/CORS — no retry, surface it
+      reason = "server";   // 5xx → retry
+    }catch(e){ lastStatus = 0; reason = "net"; }   // network error or timeout (abort) → retry
+    finally{ if(timer) clearTimeout(timer); }
+    if(attempt < UPLOAD_ATTEMPTS-1){
+      const base = 800 * Math.pow(2, attempt);              // 0.8s, 1.6s, 3.2s, 6.4s
+      const jitter = base * 0.25 * (Math.random()*2 - 1);   // ±25% so retries don't thunder in lockstep
+      await new Promise(r=>setTimeout(r, Math.max(300, base + jitter)));
+    }
   }
-  return {ok:false, status:lastStatus};
+  return {ok:false, status:lastStatus, reason};
 }
 
 async function uploadRecording(rec, onPart){
   const parts = await splitWavForUpload(rec);
+  if(!rec._uploadedParts) rec._uploadedParts = {};   // resume across retries: a part sent once is not re-sent
   for(let i=0; i<parts.length; i++){
+    if(rec._uploadedParts[parts[i].name]) continue;  // already landed on a prior attempt — skip
     if(onPart) try{ onPart(i+1, parts.length); }catch(e){}
     const res = await uploadOneBlob(parts[i].name, parts[i].blob);
     if(!res.ok) return res;                    // clip stays local; button becomes tappable retry
+    rec._uploadedParts[parts[i].name] = true;
   }
-  return {ok:true, status:200};
+  return {ok:true, status:200, reason:"ok"};
 }
 
 function renderList(){
@@ -722,7 +746,16 @@ async function doUpload(i, btn){
     await markUploaded(recs[i].id);   // persist; recording stays in store regardless
     uploadAccelSidecar(recs[i]);   // fire-and-forget best-effort; never awaited; never affects button state
   } else {
-    btn.disabled=false; btn.className="cloud fail"; btn.textContent=tt(STR.uploadFail);
+    btn.disabled=false; btn.className="cloud fail";
+    btn.textContent = res.reason==="server" ? tt(STR.uploadServer)
+                    : res.reason==="net"    ? tt(STR.uploadNet)
+                    :                          tt(STR.uploadFail);
+    el("err").textContent = tt(STR.uploadRetryNudge);   // reassure (clip is safe) + point to the always-works fallback
+    try{                                                 // pulse the 📦 Zip button in this row so the guaranteed path is obvious
+      const zip = btn.parentElement && btn.parentElement.querySelector("button.sec");
+      if(zip){ zip.classList.remove("nudge"); void zip.offsetWidth; zip.classList.add("nudge");
+               setTimeout(()=>{ try{ zip.classList.remove("nudge"); }catch(e){} }, 3000); }
+    }catch(e){}
     btn.onclick=()=>doUpload(i, btn);   // tappable retry; clip never removed
   }
 }
