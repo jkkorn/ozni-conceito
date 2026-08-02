@@ -125,7 +125,7 @@ const STR = {
   sendnote:{pt:"Toque Enviar, mande o .zip no WhatsApp (vai como documento, sem perder qualidade), quem recebe descompacta pra pegar o .wav. Use WAV só pra AirDrop ou e-mail.",
             en:"Tap Send, send the .zip in WhatsApp (goes as a document, no quality loss), the recipient unzips to get the .wav. Use WAV only for AirDrop or email."},
   wav:{pt:"WAV", en:"WAV"},
-  zipFallback:{pt:"📦 Zip", en:"📦 Zip"},
+  zipFallback:{pt:"📤 Enviar pro Jonathan", en:"📤 Send to Jonathan"},
   uploadIdle:   {pt:"☁️ Enviar pra análise",                           en:"☁️ Send for analysis"},
   uploadSending:{pt:"Enviando…",                                        en:"Sending…"},
   uploadDone:   {pt:"✅ Enviado!",                                      en:"✅ Sent!"},
@@ -204,14 +204,23 @@ const MODES = {
   },
 };
 
-const VERSION = "v1.9 · robusto";   // bump on every recorder change; shown at top so a stale cache is obvious
+const VERSION = "v2.0 · zip";   // bump on every recorder change; shown at top so a stale cache is obvious
 
 // ---- Supabase upload config (replace placeholders to enable; keep placeholders to deploy safe) ----
 // UNCONFIGURED BUILD: placeholder url does not match ^https:// → UPLOAD_ENABLED = false →
 // NO cloud button, NO fetch, NO localStorage at top level → identical to v1.3 recorder.
+//
+// 2026-08-02 — auto-upload DISABLED on purpose. The old backend
+// (https://artmeyoutvbitcapokal.supabase.co, bucket "field-recordings") NO LONGER RESOLVES
+// (NXDOMAIN — Supabase project deleted/never provisioned), so every "Enviar pra análise" was
+// failing at DNS. Field clips now go out via the 📤 .zip → WhatsApp path (works, byte-exact).
+// RE-ENABLE auto-upload in one step: create a Supabase project + a "field-recordings" bucket
+// with an INSERT-ONLY RLS policy, then set url + anonKey below to real values (url MUST start
+// with https:// or UPLOAD_ENABLED stays false). The v1.9 hardened uploader (timeout/retry/
+// resume, further down) is intact and starts working again the moment these are real.
 const UPLOAD = {
-  url:     "https://artmeyoutvbitcapokal.supabase.co",        // e.g. "https://xxxx.supabase.co"
-  anonKey: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFydG1leW91dHZiaXRjYXBva2FsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODIzOTk3NzMsImV4cCI6MjA5Nzk3NTc3M30.Xarxa3EkLvaafzEBvh9Tey_4yNQ6d1ox8YluItL4i4E",   // safe to embed: anon key is upload-only by RLS policy
+  url:     "",                 // <-- "https://<project>.supabase.co" to re-enable (see note above)
+  anonKey: "",                 // <-- project anon/publishable key; safe to embed with insert-only RLS
   bucket:  "field-recordings"
 };
 const UPLOAD_ENABLED = /^https:\/\//.test(UPLOAD.url);   // pure regex on a string — safe at top level
@@ -701,7 +710,7 @@ function renderList(){
       else { cloud.textContent=tt(STR.uploadIdle); cloud.onclick=()=>doUpload(i, cloud); }
       row.appendChild(cloud);
     }
-    const zipBtn=document.createElement("button"); zipBtn.className="sec"; zipBtn.textContent=tt(STR.zipFallback); zipBtn.onclick=()=>share(i); row.appendChild(zipBtn);
+    const zipBtn=document.createElement("button"); zipBtn.className = UPLOAD_ENABLED ? "sec" : "cloud"; zipBtn.textContent=tt(STR.zipFallback); zipBtn.onclick=()=>share(i); row.appendChild(zipBtn);   // primary action when auto-upload is off
     const wavBtn=document.createElement("button"); wavBtn.className="sec"; wavBtn.textContent=tt(STR.wav); wavBtn.onclick=()=>shareWav(i); row.appendChild(wavBtn);
     if(r.accel && r.accel.length){
       const accBtn=document.createElement("button"); accBtn.className="sec";
