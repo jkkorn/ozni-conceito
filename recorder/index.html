@@ -49,7 +49,7 @@
     background:var(--accent);color:#fff;font-size:15px;font-weight:700;cursor:pointer}
   .recbtn.rec{background:var(--danger)}
   .err{color:var(--danger);font-size:13px;margin-top:10px;text-align:center}
-  .rec{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--line)}
+  .rec{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--line);flex-wrap:wrap}
   .rec .nm{flex:1;font-size:13px;word-break:break-all}
   .rec .du{color:var(--muted);font-size:12px;font-variant-numeric:tabular-nums}
   .rec button{background:var(--accent);border:none;color:#fff;border-radius:8px;padding:8px 12px;font-size:13px;font-weight:600;cursor:pointer}
@@ -64,6 +64,15 @@
   .rec button.sec.nudge{border-color:var(--amber);color:var(--amber);animation:ozniPulse 0.9s ease-in-out 3}
   @keyframes ozniPulse{0%,100%{box-shadow:0 0 0 0 rgba(240,180,60,0)}50%{box-shadow:0 0 0 4px rgba(240,180,60,.35)}}
   .consent{color:var(--muted);font-size:12px;margin:8px 0 0;line-height:1.45}
+  /* Per-take quality verdict — thresholds identical to spike/analysis/recording_quality.py, so a
+     take the recorder calls good is a take the analysis pipeline also accepts. */
+  .qbadge{font-size:11px;font-weight:700;border-radius:6px;padding:3px 7px;white-space:nowrap}
+  .qbadge.ok{background:rgba(34,197,94,.15);color:var(--ok)}
+  .qbadge.clipped,.qbadge.silent{background:rgba(239,68,68,.15);color:var(--danger)}
+  .qtip{flex-basis:100%;font-size:12px;color:var(--muted);margin-top:-4px}
+  /* Sticky in-take warning: the meter's red flash lasts one buffer and is easy to miss while shooting. */
+  .takewarn{display:none;margin-top:8px;padding:9px 11px;border-radius:9px;font-size:13px;font-weight:700;line-height:1.35}
+  .takewarn.on{display:block;background:rgba(239,68,68,.14);color:var(--danger);border:1px solid rgba(239,68,68,.4)}
 </style>
 </head>
 <body>
@@ -100,6 +109,7 @@
       <span class="clipwarn" id="clipwarn"></span>
       <span id="pk"></span>
     </div>
+    <div class="takewarn" id="takewarn"></div>
     <div class="timer" id="timer">00:00</div>
     <button class="recbtn" id="recbtn" onclick="toggle()"></button>
     <div class="err" id="err"></div>
@@ -154,7 +164,51 @@ const STR = {
   foot:{pt:"Tudo fica no seu celular. Nada é enviado sozinho. Funciona offline depois de abrir.",
         en:"Everything stays on your phone. Nothing is sent automatically. Works offline once loaded."},
   cols:{pt:["O quê","Distância","Quantos"], en:["What","Distance","How many"]},
+  // ---- per-take recording-quality gate (mirrors spike/analysis/recording_quality.py) ----
+  warnClip:{pt:"⚠️ ESTOUROU o microfone — AFASTE o celular agora. Esta gravação não serve pra pesquisa.",
+            en:"⚠️ MIC CLIPPED — MOVE THE PHONE BACK now. This take is not usable for research."},
+  warnQuiet:{pt:"⚠️ Quase sem som — o microfone está tapado? Confira antes de continuar.",
+             en:"⚠️ Almost no sound — is the mic covered? Check before continuing."},
+  qOk:{pt:"✅ boa", en:"✅ good"},
+  qClipped:{pt:"❌ estourou", en:"❌ clipped"},
+  qSilent:{pt:"❌ muda", en:"❌ silent"},
+  qOkTip:{pt:"Serve pra pesquisa. Pico {pk}%.", en:"Usable for research. Peak {pk}%."},
+  qClippedTip:{pt:"{frac}% dos trechos estourados — o pico ficou achatado e o tiro perde a forma. Afaste o celular (ou baixe o volume de entrada) e grave de novo.",
+               en:"{frac}% of samples clipped — the peak is flattened and the shot loses its shape. Move the phone back (or lower input gain) and re-record."},
+  qSilentTip:{pt:"Praticamente sem sinal (pico {pk}%). Microfone tapado, ou a gravação não pegou o evento. Regrave.",
+              en:"Essentially no signal (peak {pk}%). Mic covered, or the take missed the event. Re-record."},
 };
+
+// Per-take quality thresholds — kept numerically identical to recording_quality.py so the
+// recorder and the analysis pipeline never disagree about whether a take is usable.
+const Q_SILENT_PEAK = 0.02;    // peak below this => no real signal (the 2026-08-01 dud was 0.004)
+const Q_CLIP_FRAC   = 0.005;   // >0.5% of samples at full scale => clipped
+
+/** Coarse verdict for one finished take. Mirrors recording_quality.assess(). */
+function assessTake(peak, clipFrac){
+  if(!(peak > Q_SILENT_PEAK)) return "silent";   // silent wins: a dead take can't be "clipped"
+  if(clipFrac > Q_CLIP_FRAC)  return "clipped";
+  return "ok";
+}
+
+/** Short badge label + the actionable sentence for a verdict. */
+function qualityText(q){
+  if(!q) return null;
+  const pct = (x)=> (x*100 < 0.1 && x > 0) ? "<0.1" : (x*100).toFixed(x*100 < 10 ? 1 : 0);
+  if(q.verdict==="clipped")
+    return {cls:"clipped", badge:tt(STR.qClipped), tip:tt(STR.qClippedTip).replace("{frac}", pct(q.clipFrac))};
+  if(q.verdict==="silent")
+    return {cls:"silent", badge:tt(STR.qSilent), tip:tt(STR.qSilentTip).replace("{pk}", pct(q.peak))};
+  return {cls:"ok", badge:tt(STR.qOk), tip:tt(STR.qOkTip).replace("{pk}", pct(q.peak))};
+}
+
+/** After Stop: keep a bad verdict on screen so the shooter re-records straight away. */
+function showTakeVerdict(q){
+  const t = qualityText(q); const box = el("takewarn");
+  if(!t || q.verdict==="ok"){ box.className="takewarn"; box.textContent=""; return; }
+  box.className="takewarn on";
+  box.textContent = (q.verdict==="silent" ? tt(STR.warnQuiet) : tt(STR.warnClip)) + " " + t.tip;
+}
 const MODES = {
   fogos:{
     sub:{pt:"Gravando FOGOS (bombas, rojões) p/ ver se o celular separa fogos de tiro.",
@@ -182,21 +236,29 @@ const MODES = {
     sub:{pt:"Gravando TIROS reais p/ ver se o celular separa tiro de fogos.",
          en:"Recording real GUNSHOTS to test if a phone tells them from fireworks."},
     rules:[
+      {pt:"<b>TESTE PRIMEIRO:</b> grave 10 s, dê <b>um</b> tiro, pare. Se disser <b>estourou</b>, afaste e repita até dar <b>boa</b>.",
+       en:"<b>TEST FIRST:</b> record 10 s, fire <b>one</b> shot, stop. If it says <b>clipped</b>, move back and repeat until it says <b>good</b>."},
       {pt:"Celular num apoio, <b>mic virado pra quem atira</b>, <b>fora da linha de tiro</b>.",
        en:"Phone on a stand, <b>mic toward the shooter</b>, <b>off the line of fire</b>."},
-      {pt:"Se aparecer <b>CLIPOU</b>, <b>afaste o celular</b>. Comece a 15–25 m.",
-       en:"If it shows <b>CLIPPED</b>, <b>move the phone back</b>. Start at 15–25 m."},
-      {pt:"Perto demais NÃO é melhor — estoura.",
-       en:"Closer is NOT better — it clips."},
+      {pt:"<b>Perto demais NÃO é melhor — estoura</b> e a gravação não serve. Comece a 15–25 m.",
+       en:"<b>Closer is NOT better — it clips</b> and the take is useless. Start at 15–25 m."},
+      {pt:"🎆 <b>Traga fogos/bombas</b> e grave na <b>mesma sessão, mesma distância</b> — é disso que a pesquisa precisa.",
+       en:"🎆 <b>Bring fireworks/bombas</b> and record them in the <b>same session, same distance</b> — that's what the research needs."},
+      {pt:"<b>Um som por vez</b>, com 1–2 s de silêncio entre cada. Nunca tiro e bomba juntos.",
+       en:"<b>One sound at a time</b>, 1–2 s of silence between each. Never a shot and a bomba together."},
       {pt:"<b>Fale antes</b> ('Taurus G2C, 25 m, 5 tiros') e grave <b>fundo</b> sem tiro.",
        en:"<b>Say it first</b> ('Taurus G2C, 25 m, 5 shots') and record <b>background</b>."},
     ],
-    chips:["tiro-05m","tiro-15m","tiro-25m","tiro-50m","tiro-parede","tiro-rapido","fundo-stand"],
-    label0:"tiro-25m",
+    chips:["teste-nivel","tiro-15m","tiro-25m","tiro-50m","bomba-15m","bomba-25m","bomba-50m","tiro-parede","tiro-rapido","fundo-stand"],
+    label0:"teste-nivel",
     plan:[
+      {w:{pt:"⚠️ Teste de nível (1 tiro)", en:"⚠️ Level test (1 shot)"}, d:{pt:"antes de tudo", en:"before anything"}, n:"1"},
       {w:{pt:"Pistola comum", en:"Common pistol"}, d:"15 m", n:"20"},
       {w:{pt:"Pistola comum", en:"Common pistol"}, d:"25 m", n:"20"},
       {w:{pt:"Pistola comum", en:"Common pistol"}, d:"50 m", n:"20"},
+      {w:{pt:"🎆 Bomba / fogos", en:"🎆 Bomba / fireworks"}, d:"15 m", n:"20"},
+      {w:{pt:"🎆 Bomba / fogos", en:"🎆 Bomba / fireworks"}, d:"25 m", n:"20"},
+      {w:{pt:"🎆 Bomba / fogos", en:"🎆 Bomba / fireworks"}, d:"50 m", n:"20"},
       {w:{pt:"Outras armas (G3, Glock, .22)", en:"Other guns (G3, Glock, .22)"}, d:"~20 m", n:"10"},
       {w:{pt:"Através de vidro/parede", en:"Through glass/wall"}, d:"~20 m", n:"15"},
       {w:{pt:"Fundo (SEM tiro)", en:"Background (NO firing)"}, d:"—", n:"2–3 min"},
@@ -204,7 +266,7 @@ const MODES = {
   },
 };
 
-const VERSION = "v2.0 · zip";   // bump on every recorder change; shown at top so a stale cache is obvious
+const VERSION = "v2.1 · qualidade";   // bump on every recorder change; shown at top so a stale cache is obvious
 
 // ---- Supabase upload config (replace placeholders to enable; keep placeholders to deploy safe) ----
 // UNCONFIGURED BUILD: placeholder url does not match ^https:// → UPLOAD_ENABLED = false →
@@ -270,6 +332,7 @@ function render(){
 let ctx, stream, source, processor, zero;
 let recording=false, recRate=48000, startMs=0, timerId=null, sessionPeak=0;
 let capturedSamples=0, lastAudioMs=0;
+let clipSamples=0, takeWarned=false;   // per-take recording-quality accounting
 let wakeLock=null, visHandlerBound=false;
 let recs = [];
 let accelSamples = [], accelOK = false; let _accelHandler = null;
@@ -402,6 +465,8 @@ async function start(){
   processor = ctx.createScriptProcessor(4096,1,1);
   zero = ctx.createGain(); zero.gain.value = 0;
   sessionPeak=0; capturedSamples=0; lastAudioMs=Date.now();
+  clipSamples=0; takeWarned=false;
+  el("takewarn").className="takewarn"; el("takewarn").textContent="";
   const label=(el("label").value||"rec").replace(/\s+/g,"-");
   sessionId = String(Date.now())+"_"+label;
   chunkSeq=0; pendingI16=[]; pendingLen=0; memChunks=[];
@@ -416,8 +481,18 @@ async function start(){
     capturedSamples += inp.length; lastAudioMs = Date.now();
     if(pendingLen >= recRate){ flushPending(); }   // ~1s of audio -> persist a chunk
     if(el("err").textContent) el("err").textContent="";
-    let pk=0,sum=0; for(let i=0;i<inp.length;i++){ const v=Math.abs(inp[i]); if(v>pk)pk=v; sum+=inp[i]*inp[i]; }
+    // Track peak, RMS and — critically — the FRACTION of saturated samples. Peak alone can't
+    // distinguish "one sample kissed full scale" from "the muzzle blast was flat-topped for 20 ms",
+    // and it is the fraction that decides whether the take is analysable.
+    let pk=0,sum=0,clipped=0;
+    for(let i=0;i<inp.length;i++){ const v=Math.abs(inp[i]); if(v>pk)pk=v; if(v>=0.99)clipped++; sum+=inp[i]*inp[i]; }
     const rms=Math.sqrt(sum/inp.length); if(pk>sessionPeak)sessionPeak=pk;
+    clipSamples += clipped;
+    if(clipped>0 && !takeWarned){
+      takeWarned=true;
+      el("takewarn").className="takewarn on";
+      el("takewarn").textContent=tt(STR.warnClip);
+    }
     const db = rms>1e-6 ? Math.round(20*Math.log10(rms)) : -120;
     el("meterbar").style.width = Math.min(100,Math.max(0,(db+60)/60*100))+"%";
     el("meter").classList.toggle("clip", pk>=0.99);
@@ -466,23 +541,30 @@ async function stop(){
   const name=`ozni_${dev?dev+"_":""}${label}_${stamp}_${recRate}hz.wav`;
   const sid=sessionId;
 
+  // Per-take quality verdict — computed once, carried with the recording, shown in the list.
+  // The whole point: a shooter finds out the take is unusable NOW, while they can still
+  // re-record, instead of weeks later during analysis.
+  const clipFrac = capturedSamples ? clipSamples/capturedSamples : 0;
+  const quality = { verdict: assessTake(sessionPeak, clipFrac), peak: sessionPeak, clipFrac };
+  showTakeVerdict(quality);
+
   const db=await dbReady();
   if(db){
     try{
       const recsForSession=await readChunks(db, sid);          // (b) read chunks back in seq order
       const {blob, samples}=chunksToWavBlob(recsForSession, recRate);
-      const rec={ id:sid, name, blob, dur:samples/recRate, rate:recRate, done:true, ts:Date.now(), accel:accelSnapshot };
+      const rec={ id:sid, name, blob, dur:samples/recRate, rate:recRate, done:true, ts:Date.now(), accel:accelSnapshot, quality };
       await idbReq(db.transaction("recordings","readwrite").objectStore("recordings").put(rec));  // (c) persist finalized
       // (d) mark session done + delete its chunks
       try{ db.transaction("sessions","readwrite").objectStore("sessions").put({sessionId:sid, rate:recRate, label, ts:Date.now(), done:true}); }catch(e){}
       await deleteSessionChunks(db, sid);
-      recs.unshift({blob:rec.blob, name:rec.name, dur:rec.dur, id:rec.id, uploaded:false, accel:accelSnapshot});  // in-memory list mirrors persisted
+      recs.unshift({blob:rec.blob, name:rec.name, dur:rec.dur, id:rec.id, uploaded:false, accel:accelSnapshot, quality});  // in-memory list mirrors persisted
     }catch(e){ handleIdbError(e); }
   } else {
     // No IDB (e.g. private mode without storage): assemble from the in-memory fallback chunks
     // that flushPending retained, so the user still gets the FULL clip (not just the last batch).
     const {blob, samples}=chunksToWavBlob(memChunks.slice(), recRate);
-    recs.unshift({blob, name, dur: samples ? samples/recRate : capturedSamples/recRate, id:sid, uploaded:false, accel:accelSnapshot});
+    recs.unshift({blob, name, dur: samples ? samples/recRate : capturedSamples/recRate, id:sid, uploaded:false, accel:accelSnapshot, quality});
   }
   renderList();   // (e) render BEFORE releasing the lock
   // (f) ONLY NOW release the wake lock — last.
@@ -704,6 +786,12 @@ function renderList(){
   recs.forEach((r,i)=>{
     const row=document.createElement("div"); row.className="rec";
     row.innerHTML = `<span class="nm">${r.name}</span><span class="du">${r.dur.toFixed(1)}s</span>`;
+    // Quality verdict travels with the take, so a bad one stays visibly bad in the list.
+    const qt = qualityText(r.quality);
+    if(qt){
+      const b=document.createElement("span"); b.className="qbadge "+qt.cls; b.textContent=qt.badge;
+      row.appendChild(b);
+    }
     if(UPLOAD_ENABLED){
       const cloud=document.createElement("button"); cloud.className="cloud";
       if(r.uploaded){ cloud.classList.add("ok"); cloud.textContent=tt(STR.uploadDone); cloud.disabled=true; }
@@ -715,6 +803,10 @@ function renderList(){
     if(r.accel && r.accel.length){
       const accBtn=document.createElement("button"); accBtn.className="sec";
       accBtn.textContent=tt(STR.accel); accBtn.onclick=()=>shareAccel(i); row.appendChild(accBtn);
+    }
+    if(qt && r.quality && r.quality.verdict!=="ok"){
+      const tip=document.createElement("div"); tip.className="qtip"; tip.textContent=qt.tip;
+      row.appendChild(tip);
     }
     list.appendChild(row);
   });
@@ -851,7 +943,7 @@ async function init(){
     // load finalized recordings -> recs[] (survive reloads)
     const finalized=await idbReq(db.transaction("recordings","readonly").objectStore("recordings").getAll());
     finalized.sort((a,b)=>(b.ts||0)-(a.ts||0));
-    for(const r of finalized) recs.push({blob:r.blob, name:r.name, dur:r.dur, id:r.id, uploaded:!!r.uploaded, accel:r.accel||null});
+    for(const r of finalized) recs.push({blob:r.blob, name:r.name, dur:r.dur, id:r.id, uploaded:!!r.uploaded, accel:r.accel||null, quality:r.quality||null});
     // recover interrupted sessions (done:false)
     const sessions=await idbReq(db.transaction("sessions","readonly").objectStore("sessions").getAll());
     let recovered=0;
