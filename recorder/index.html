@@ -32,7 +32,7 @@
   th{color:var(--muted);font-weight:600}
   td.n,th.n{text-align:right;font-variant-numeric:tabular-nums;font-weight:600}
   .label-row{display:flex;gap:8px;margin-bottom:10px}
-  .label-row input{flex:1;background:#11141a;border:1px solid var(--line);color:var(--ink);
+  .label-row input{flex:1;min-width:0;width:100%;background:#11141a;border:1px solid var(--line);color:var(--ink);
     border-radius:10px;padding:11px 12px;font-size:16px}
   .chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px}
   .chips button{background:#11141a;border:1px solid var(--line);color:var(--muted);
@@ -50,7 +50,7 @@
   .recbtn.rec{background:var(--danger)}
   .err{color:var(--danger);font-size:13px;margin-top:10px;text-align:center}
   .rec{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--line);flex-wrap:wrap}
-  .rec .nm{flex:1;font-size:13px;word-break:break-all}
+  .rec .nm{flex:1 0 100%;min-width:0;font-size:13px;overflow-wrap:anywhere}
   .rec .du{color:var(--muted);font-size:12px;font-variant-numeric:tabular-nums}
   .rec button{background:var(--accent);border:none;color:#fff;border-radius:8px;padding:8px 12px;font-size:13px;font-weight:600;cursor:pointer}
   .rec button.sec{background:transparent;border:1px solid var(--line);color:var(--muted);padding:7px 10px}
@@ -64,6 +64,8 @@
   .rec button.sec.nudge{border-color:var(--amber);color:var(--amber);animation:ozniPulse 0.9s ease-in-out 3}
   @keyframes ozniPulse{0%,100%{box-shadow:0 0 0 0 rgba(240,180,60,0)}50%{box-shadow:0 0 0 4px rgba(240,180,60,.35)}}
   .consent{color:var(--muted);font-size:12px;margin:8px 0 0;line-height:1.45}
+  .field-label{display:block;font-size:13px;margin:10px 0 5px;color:var(--muted)}
+  button:disabled{opacity:.55;cursor:wait}
   /* Per-take quality verdict — thresholds identical to spike/analysis/recording_quality.py, so a
      take the recorder calls good is a take the analysis pipeline also accepts. */
   .qbadge{font-size:11px;font-weight:700;border-radius:6px;padding:3px 7px;white-space:nowrap}
@@ -85,6 +87,7 @@
     </div>
     <div class="toggles">
       <div class="seg" id="modeseg">
+        <button data-mode="teste" onclick="setMode('teste')" aria-label="Teste / Test">🎙️</button>
         <button data-mode="fogos" onclick="setMode('fogos')">🎆</button>
         <button data-mode="tiro" onclick="setMode('tiro')">🎯</button>
       </div>
@@ -100,6 +103,12 @@
 
   <div class="card">
     <h2 id="h-rec"></h2>
+    <p class="note" id="capture-help"></p>
+    <label class="field-label" for="device-model" id="model-label"></label>
+    <div class="label-row"><input id="device-model" maxlength="80" autocorrect="off" spellcheck="false" placeholder="iPhone 15 / Samsung Galaxy S24"></div>
+    <label class="field-label" for="device-os" id="os-label"></label>
+    <div class="label-row"><input id="device-os" maxlength="80" autocorrect="off" spellcheck="false" placeholder="iOS 26.0 / Android 16"></div>
+    <p class="consent" id="device-help"></p>
     <div class="label-row"><input id="devname" autocapitalize="words" autocorrect="off" spellcheck="false"></div>
     <div class="label-row"><input id="label" autocapitalize="off" autocorrect="off" spellcheck="false"></div>
     <div class="chips" id="chips"></div>
@@ -121,6 +130,7 @@
   <p class="foot" id="foot"></p>
 </div>
 
+<script src="metadata.js?v=2.2"></script>
 <script>
 const STR = {
   title:{pt:"Ozni · Gravador de campo", en:"Ozni · Field recorder"},
@@ -132,10 +142,23 @@ const STR = {
   send:{pt:"Enviar", en:"Send"}, empty:{pt:"Nenhuma gravação ainda.", en:"No recordings yet."},
   clip:{pt:"CLIPOU — afaste o celular", en:"CLIPPED — move phone back"},
   peak:{pt:"pico", en:"peak"},
-  sendnote:{pt:"Toque Enviar, mande o .zip no WhatsApp (vai como documento, sem perder qualidade), quem recebe descompacta pra pegar o .wav. Use WAV só pra AirDrop ou e-mail.",
-            en:"Tap Send, send the .zip in WhatsApp (goes as a document, no quality loss), the recipient unzips to get the .wav. Use WAV only for AirDrop or email."},
+  sendnote:{pt:"Toque Enviar ZIP e escolha Jonathan no WhatsApp. Envie como DOCUMENTO: o ZIP contém áudio WAV + dados do aparelho. Se baixar, anexe o ZIP da pasta Downloads. WAV avulso não inclui esses dados.",
+            en:"Tap Send ZIP and choose Jonathan in WhatsApp. Send as a DOCUMENT: the ZIP contains WAV audio + device details. If downloaded, attach the ZIP from Downloads. A standalone WAV does not include these details."},
   wav:{pt:"WAV", en:"WAV"},
-  zipFallback:{pt:"📤 Enviar pro Jonathan", en:"📤 Send to Jonathan"},
+  zipFallback:{pt:"📤 Enviar ZIP", en:"📤 Send ZIP"},
+  zipPreparing:{pt:"Preparando ZIP…", en:"Preparing ZIP…"},
+  zipPrepare:{pt:"Preparar ZIP", en:"Prepare ZIP"},
+  zipError:{pt:"Não deu para preparar o ZIP. Tente de novo ou salve o WAV.", en:"Could not prepare the ZIP. Try again or save the WAV."},
+  downloaded:{pt:"ZIP baixado. Anexe o arquivo como documento no WhatsApp e envie para Jonathan.", en:"ZIP downloaded. Attach the file as a document in WhatsApp and send it to Jonathan."},
+  delete:{pt:"Apagar", en:"Delete"},
+  deleteConfirm:{pt:"Apagar esta gravação deste navegador? Confira se você já enviou ou salvou o ZIP.", en:"Delete this recording from this browser? Check that you have already sent or saved the ZIP."},
+  temporary:{pt:"Só nesta aba: o navegador não salvou esta gravação. Envie o ZIP antes de fechar.", en:"Only in this tab: the browser did not save this recording. Send the ZIP before closing."},
+  recoveredTake:{pt:"Gravação recuperada: o final pode estar faltando. Qualidade e movimento não foram recuperados; confira o áudio.", en:"Recovered recording: the end may be missing. Quality and motion were not recovered; check the audio."},
+  interruptedTake:{pt:"Gravação interrompida. O arquivo contém apenas o áudio capturado; confira antes de enviar.", en:"Recording interrupted. The file contains only captured audio; check before sharing."},
+  captureHelp:{pt:"Use Safari no iPhone ou Chrome no Android. Mantenha esta página visível e a tela ligada. Cada gravação para em 60 segundos. Fones Bluetooth mudam o microfone: desconecte-os para testar o celular.", en:"Use Safari on iPhone or Chrome on Android. Keep this page visible and the screen on. Each recording stops at 60 seconds. Bluetooth headsets change the microphone: disconnect them to test the phone."},
+  modelLabel:{pt:"Modelo do celular (confira nos Ajustes)", en:"Phone model (check Settings)"},
+  osLabel:{pt:"Sistema e versão (confira nos Ajustes)", en:"OS and version (check Settings)"},
+  deviceHelp:{pt:"Registramos os dados que o navegador fornece. Ele pode esconder o modelo e a versão real do sistema; complete acima se souber. No iPhone: Ajustes → Geral → Sobre. Dados ausentes ficam como desconhecidos.", en:"We record the details the browser provides. It may hide the model and actual OS version; complete these fields if known. On iPhone: Settings → General → About. Missing details remain unknown."},
   uploadIdle:   {pt:"☁️ Enviar pra análise",                           en:"☁️ Send for analysis"},
   uploadSending:{pt:"Enviando…",                                        en:"Sending…"},
   uploadDone:   {pt:"✅ Enviado!",                                      en:"✅ Sent!"},
@@ -145,34 +168,34 @@ const STR = {
   uploadRetryNudge:{pt:"A gravação está salva no celular. Toque de novo, ou mande o 📦 Zip pelo WhatsApp (vai como documento).",
                     en:"The recording is saved on your phone. Tap again, or send the 📦 Zip on WhatsApp (as a document)."},
   uploadOffline:{pt:"📡 Sem internet — conecte e toque de novo",         en:"📡 No internet — connect and tap again"},
-  consent:      {pt:"Ao tocar Enviar, sua gravação vai pro Ozni pra pesquisa. Nada sai do celular até você enviar.",
-                 en:"When you tap Send, your recording goes to Ozni for research. Nothing leaves your phone until you send it."},
+  consent:      {pt:"O ZIP compartilha áudio, dados do navegador/aparelho, versão informada, horário, qualidade e movimento (se permitido) para pesquisa do Ozni. Evite conversas privadas. Áudio e dados da gravação ficam neste navegador até você compartilhar. Não coletamos GPS ou número de série. Ao abrir a página, o provedor do site recebe a conexão normal da web.",
+                 en:"The ZIP shares audio, browser/device details, reported OS version, time, quality and motion (if allowed) for Ozni research. Avoid private conversations. Recording data stays in this browser until you share it. We do not collect GPS or serial numbers. Opening the page makes a normal web connection to the site host."},
   accel:    {pt:"📈 accel", en:"📈 accel"},
   accelNote:{pt:"📈 = dados do acelerômetro desta gravação (teste do filtro de vibração).", en:"📈 = accelerometer data for this clip (vibration-gate test)."},
   shareApp:{pt:"📤 Compartilhar gravador", en:"📤 Share recorder"},
-  invite:{pt:"Grave fogos ou tiros pra pesquisa do Ozni, abra o link e toque Gravar.", en:"Record fireworks or gunshots for Ozni research, open the link and tap Record."},
+  invite:{pt:"Me ajuda a testar o gravador do Ozni? Abra no Safari (iPhone) ou Chrome (Android), informe modelo e sistema, grave 20–30 s de som ambiente e envie o ZIP como documento. É pesquisa, não um detector de segurança.", en:"Help me test the Ozni recorder? Open in Safari (iPhone) or Chrome (Android), enter model and OS, record 20–30 seconds of ambient sound, and send the ZIP as a document. This is research, not a safety detector."},
   inviteTitle:{pt:"Gravador de campo Ozni", en:"Ozni field recorder"},
   linkCopied:{pt:"✅ Link copiado", en:"✅ Link copied"},
   micblock:{pt:"Microfone bloqueado: ", en:"Mic blocked: "},
   stall:{pt:"⚠️ Microfone travou — a tela apagou? A captura parou.", en:"⚠️ Mic stalled — did the screen sleep? Capture stopped."},
   keepawake:{pt:"⚠️ Mantenha a tela ligada (desative o bloqueio automático) — em captura longa, a tela apagada interrompe a gravação.", en:"⚠️ Keep the screen on (disable auto-lock) — on a long capture, a sleeping screen stops the recording."},
   recovered:{pt:"✅ {n} gravação(ões) recuperada(s) de uma sessão interrompida — toque Enviar.", en:"✅ Recovered {n} recording(s) from an interrupted session — tap Send."},
-  accelOff:{pt:"📈 Acelerômetro desligado — ative Movimento e Orientação nos Ajustes do Safari/Arc.", en:"📈 Accelerometer off — enable Motion & Orientation Access in Safari/Arc settings."},
+  accelOff:{pt:"Movimento indisponível. A gravação de áudio continua normalmente.", en:"Motion unavailable. Audio recording continues normally."},
   devname:{pt:"Seu nome ou local (vai no nome do arquivo)", en:"Your name or place (goes in the file name)"},
   nudge:{pt:"💡 Preencha \"seu nome ou local\" lá em cima — ajuda muito! (ou toque Enviar de novo pra enviar assim mesmo)", en:"💡 Fill in \"your name or place\" above — it really helps! (or tap Send again to send anyway)"},
   quota:{pt:"⚠️ Armazenamento cheio — toque Enviar e apague gravações.", en:"⚠️ Storage full — Send then delete recordings."},
-  foot:{pt:"Tudo fica no seu celular. Nada é enviado sozinho. Funciona offline depois de abrir.",
-        en:"Everything stays on your phone. Nothing is sent automatically. Works offline once loaded."},
+  foot:{pt:"Pesquisa, não detector ou alerta de segurança. Sem envio automático. Grave com a página aberta; reabrir precisa de internet. O navegador pode apagar seus dados: envie os ZIPs que quiser guardar.",
+        en:"Research, not a detector or safety alert. No automatic upload. Record with the page open; reopening needs internet. Browser storage can be cleared: send the ZIPs you want to keep."},
   cols:{pt:["O quê","Distância","Quantos"], en:["What","Distance","How many"]},
   // ---- per-take recording-quality gate (mirrors spike/analysis/recording_quality.py) ----
   warnClip:{pt:"⚠️ ESTOUROU o microfone — AFASTE o celular agora. Esta gravação não serve pra pesquisa.",
             en:"⚠️ MIC CLIPPED — MOVE THE PHONE BACK now. This take is not usable for research."},
   warnQuiet:{pt:"⚠️ Quase sem som — o microfone está tapado? Confira antes de continuar.",
              en:"⚠️ Almost no sound — is the mic covered? Check before continuing."},
-  qOk:{pt:"✅ boa", en:"✅ good"},
+  qOk:{pt:"✓ nível OK", en:"✓ level OK"},
   qClipped:{pt:"❌ estourou", en:"❌ clipped"},
   qSilent:{pt:"❌ muda", en:"❌ silent"},
-  qOkTip:{pt:"Serve pra pesquisa. Pico {pk}%.", en:"Usable for research. Peak {pk}%."},
+  qOkTip:{pt:"Pico {pk}%. Esta checagem de nível não garante fidelidade ou detecção.", en:"Peak {pk}%. This level check does not guarantee fidelity or detection."},
   qClippedTip:{pt:"{frac}% dos trechos estourados — o pico ficou achatado e o tiro perde a forma. Afaste o celular (ou baixe o volume de entrada) e grave de novo.",
                en:"{frac}% of samples clipped — the peak is flattened and the shot loses its shape. Move the phone back (or lower input gain) and re-record."},
   qSilentTip:{pt:"Praticamente sem sinal (pico {pk}%). Microfone tapado, ou a gravação não pegou o evento. Regrave.",
@@ -210,6 +233,20 @@ function showTakeVerdict(q){
   box.textContent = (q.verdict==="silent" ? tt(STR.warnQuiet) : tt(STR.warnClip)) + " " + t.tip;
 }
 const MODES = {
+  teste:{
+    sub:{pt:"Teste de gravação para pesquisa — iPhone e Android, sem instalar app.", en:"Research recording test — iPhone and Android, no app installation."},
+    rules:[
+      {pt:"Grave <b>20–30 segundos</b> de ambiente normal, sem conversas privadas.", en:"Record <b>20–30 seconds</b> of normal surroundings, without private conversations."},
+      {pt:"Apoie o celular, deixe o microfone livre e <b>mantenha a tela ligada</b>.", en:"Rest the phone on a surface, keep the microphone clear and <b>keep the screen on</b>."},
+      {pt:"Teste sons comuns, como música ambiente ou palmas moderadas. <b>Não provoque tiros, explosões ou situações de risco.</b>", en:"Test ordinary sounds such as background music or moderate claps. <b>Do not create gunfire, explosions or risky situations.</b>"},
+      {pt:"Pare, confira a duração e <b>envie o ZIP como documento</b>. O envio não é automático.", en:"Stop, check the duration and <b>send the ZIP as a document</b>. Sending is not automatic."},
+    ],
+    chips:["ambiente","musica","palmas","outro"], label0:"ambiente",
+    plan:[
+      {w:{pt:"Ambiente normal",en:"Normal surroundings"},d:{pt:"celular apoiado",en:"phone resting"},n:"20–30 s"},
+      {w:{pt:"Som comum (opcional)",en:"Ordinary sound (optional)"},d:{pt:"volume confortável",en:"comfortable volume"},n:"20–30 s"},
+    ],
+  },
   fogos:{
     sub:{pt:"Gravando FOGOS (bombas, rojões) p/ ver se o celular separa fogos de tiro.",
          en:"Recording FIREWORKS (bombas, rockets) to test if a phone tells them from gunfire."},
@@ -266,7 +303,7 @@ const MODES = {
   },
 };
 
-const VERSION = "v2.1 · qualidade";   // bump on every recorder change; shown at top so a stale cache is obvious
+const VERSION = "v2.2 · aparelho + sistema";   // bump on every recorder change; shown at top so a stale cache is obvious
 
 // ---- Supabase upload config (replace placeholders to enable; keep placeholders to deploy safe) ----
 // UNCONFIGURED BUILD: placeholder url does not match ^https:// → UPLOAD_ENABLED = false →
@@ -286,7 +323,7 @@ const UPLOAD = {
   bucket:  "field-recordings"
 };
 const UPLOAD_ENABLED = /^https:\/\//.test(UPLOAD.url);   // pure regex on a string — safe at top level
-let state = {lang:"pt", mode:"fogos"};
+let state = {lang:"pt", mode:"teste"};
 const tt = (o)=> (o && typeof o==="object") ? o[state.lang] : o;
 const el = (id)=> document.getElementById(id);
 
@@ -309,6 +346,12 @@ function render(){
   el("sharelink").textContent = tt(STR.shareApp);
   el("clipwarn").textContent = tt(STR.clip);
   el("devname").placeholder = tt(STR.devname);
+  el("devname").setAttribute?.("aria-label", tt(STR.devname));
+  el("label").setAttribute?.("aria-label", state.lang==="pt" ? "Descrição do som" : "Sound description");
+  el("capture-help").textContent = tt(STR.captureHelp);
+  el("model-label").textContent = tt(STR.modelLabel);
+  el("os-label").textContent = tt(STR.osLabel);
+  el("device-help").textContent = tt(STR.deviceHelp);
 
   el("rules").innerHTML = "";
   m.rules.forEach(r=>{ const li=document.createElement("li"); li.innerHTML = tt(r); el("rules").appendChild(li); });
@@ -350,225 +393,349 @@ function onDeviceMotion(e){
 
 // ---- lazy IndexedDB (guarded: never accessed at top level — Node verify shim has no indexedDB) ----
 const DB_NAME = "ozni-rec", DB_VER = 1;
+const CAPTURE_MAX_SECONDS = 60;
 let _dbPromise = null;
+let recorderLeaseAllowed=null, recorderLeasePromise=null;
+let initReady=false, activeStartup=null;
+function acquireRecorderLease(){
+  if(recorderLeasePromise)return recorderLeasePromise;
+  if(typeof indexedDB==="undefined"){recorderLeaseAllowed=true;return Promise.resolve(true);}
+  recorderLeasePromise=new Promise(resolve=>{
+    const denied=message=>{recorderLeaseAllowed=false;captureFailure=message;showCaptureFailure();resolve(false);};
+    if(!navigator.locks || typeof navigator.locks.request!=="function"){
+      denied(captureMessage("Este navegador não oferece gravação segura entre abas. Abra em Safari ou Chrome atualizado.",
+        "This browser cannot coordinate recording tabs. Open in an up-to-date Safari or Chrome."));return;
+    }
+    navigator.locks.request("ozni-recorder-session",{mode:"exclusive",ifAvailable:true},lock=>{
+      if(!lock){denied(captureMessage("Gravador aberto em outra aba. Feche a outra aba e recarregue esta página.",
+        "Recorder is open in another tab. Close that tab and reload this page."));return;}
+      recorderLeaseAllowed=true;resolve(true);
+      return new Promise(()=>{}); // Browser releases the lease when this document is destroyed.
+    }).catch(()=>denied(captureMessage("Não foi possível proteger esta sessão. Feche outras abas e recarregue.",
+      "Could not protect this session. Close other tabs and reload.")));
+  });
+  return recorderLeasePromise;
+}
 function dbReady(){
-  if(typeof indexedDB === "undefined") return Promise.resolve(null);   // Node shim / unsupported browser
+  if(typeof indexedDB === "undefined") return Promise.resolve(null);
   if(_dbPromise) return _dbPromise;
   _dbPromise = new Promise((resolve)=>{
     let req;
-    try{ req = indexedDB.open(DB_NAME, DB_VER); }
-    catch(e){ resolve(null); return; }
+    try{ req = indexedDB.open(DB_NAME, DB_VER); }catch(e){ resolve(null); return; }
     req.onupgradeneeded = ()=>{
       const db = req.result;
-      if(!db.objectStoreNames.contains("sessions"))   db.createObjectStore("sessions",   {keyPath:"sessionId"});
-      if(!db.objectStoreNames.contains("chunks"))     db.createObjectStore("chunks",     {keyPath:["sessionId","seq"]});
+      if(!db.objectStoreNames.contains("sessions")) db.createObjectStore("sessions", {keyPath:"sessionId"});
+      if(!db.objectStoreNames.contains("chunks")) db.createObjectStore("chunks", {keyPath:["sessionId","seq"]});
       if(!db.objectStoreNames.contains("recordings")) db.createObjectStore("recordings", {keyPath:"id"});
     };
-    req.onsuccess = ()=> resolve(req.result);
-    req.onerror   = ()=>{ resolve(null); };   // degrade gracefully — never throw out of here
+    req.onsuccess = ()=>{ req.result.onversionchange=()=>{ req.result.close(); _dbPromise=null; }; resolve(req.result); };
+    req.onerror = ()=>resolve(null);
+    req.onblocked = ()=>resolve(null);
   });
   return _dbPromise;
 }
-// Promise-wrap a single IDB request; resolves on success, rejects on error (caller try/catch handles quota).
 function idbReq(req){ return new Promise((res,rej)=>{ req.onsuccess=()=>res(req.result); req.onerror=()=>rej(req.error); }); }
-
+// A request's success is NOT a transaction commit. Cleanup only follows oncomplete.
+function idbCommit(db, stores, write){
+  return new Promise((resolve,reject)=>{
+    let tx;
+    try{
+      tx=db.transaction(stores,"readwrite");
+      tx.oncomplete=()=>resolve();
+      tx.onabort=()=>reject(tx.error || new Error("Storage transaction aborted"));
+      tx.onerror=()=>{}; // onabort is the terminal result; never swallow an aborted write.
+      write(tx);
+    }catch(e){ try{ if(tx) tx.abort(); }catch(_){} reject(e); }
+  });
+}
+function sessionRange(sid){ return IDBKeyRange.bound([sid,-Infinity],[sid,Infinity]); }
+function finalizeSession(db, session, rec){
+  // All three changes commit together or roll back together, including quota errors.
+  return idbCommit(db,["recordings","sessions","chunks"],tx=>{
+    tx.objectStore("recordings").put(rec);
+    tx.objectStore("sessions").delete(session.sessionId);
+    tx.objectStore("chunks").delete(sessionRange(session.sessionId));
+  });
+}
 function f32ToI16(f32){ const out=new Int16Array(f32.length);
   for(let i=0;i<f32.length;i++){ let s=Math.max(-1,Math.min(1,f32[i])); out[i]= s<0 ? s*0x8000 : s*0x7FFF; } return out; }
 
-// ---- durable session state ----
+// Every take is capped at 60s. Keep that bounded PCM copy until finalization so a failed
+// write never destroys the only copy. Committed chunks also survive a tab/process kill.
 let sessionId="", chunkSeq=0, pendingI16=[], pendingLen=0, memChunks=[];
-
-function flushPending(){
-  if(pendingLen===0) return;
-  let merged=new Int16Array(pendingLen), o=0;
-  for(const c of pendingI16){ merged.set(c,o); o+=c.length; }
-  pendingI16=[]; pendingLen=0;
-  const seq=chunkSeq++; const sid=sessionId;
-  dbReady().then(db=>{ if(!db){ memChunks.push({seq, buf:merged}); return; }   // no IDB -> retain in memory so stop() can still build the full clip
-    try{
-      const tx=db.transaction("chunks","readwrite");
-      tx.objectStore("chunks").put({sessionId:sid, seq, buf:merged});
-      tx.onerror=()=>handleIdbError(tx.error);   // quota etc.
-    }catch(e){ handleIdbError(e); }
-  });
+let chunkWrites=Promise.resolve(), activeSession=null, captureBusy=false, captureFailure="";
+let stopPromise=null;
+function captureMessage(pt,en){ return state.lang==="pt" ? pt : en; }
+function showCaptureFailure(){
+  el("err").textContent=captureFailure;
 }
-
 function handleIdbError(e){
-  if(e && (e.name==="QuotaExceededError" || (e.message||"").indexOf("quota")>=0)){
-    el("err").textContent = tt(STR.quota);   // bilingual; prior data intact; recording continues
-  }
-  // any other IDB error: stay silent in UI (best-effort durability) — do NOT throw out of the audio path
+  captureFailure=captureMessage(
+    "⚠️ Falha ao salvar no navegador. A gravação parou. Envie ou baixe o arquivo antes de fechar esta página.",
+    "⚠️ Browser storage failed. Recording stopped. Share or download the file before closing this page.");
+  showCaptureFailure();
+  if(recording) void stop("storage_failure");
 }
-
-// ---- WAV assembler from Int16 chunks (byte-equivalent to encodeWAV) ----
+function flushPending(){
+  if(pendingLen===0) return chunkWrites;
+  const merged=new Int16Array(pendingLen); let offset=0;
+  for(const c of pendingI16){ merged.set(c,offset); offset+=c.length; }
+  pendingI16=[]; pendingLen=0;
+  const chunk={sessionId,seq:chunkSeq++,buf:merged};
+  memChunks.push(chunk);
+  chunkWrites=chunkWrites.then(async()=>{
+    const db=await dbReady(); if(!db) return;
+    await idbCommit(db,"chunks",tx=>tx.objectStore("chunks").put(chunk));
+  }).catch(handleIdbError);
+  return chunkWrites;
+}
 function wavHeader(numSamples, rate){
   const buf=new ArrayBuffer(44), v=new DataView(buf);
-  const ws=(off,s)=>{ for(let i=0;i<s.length;i++) v.setUint8(off+i, s.charCodeAt(i)); };
+  const ws=(off,s)=>{ for(let i=0;i<s.length;i++) v.setUint8(off+i,s.charCodeAt(i)); };
   ws(0,"RIFF"); v.setUint32(4,36+numSamples*2,true); ws(8,"WAVE"); ws(12,"fmt ");
   v.setUint32(16,16,true); v.setUint16(20,1,true); v.setUint16(22,1,true);
   v.setUint32(24,rate,true); v.setUint32(28,rate*2,true); v.setUint16(32,2,true); v.setUint16(34,16,true);
-  ws(36,"data"); v.setUint32(40,numSamples*2,true);
-  return buf;   // ArrayBuffer
+  ws(36,"data"); v.setUint32(40,numSamples*2,true); return buf;
 }
-// Assemble a WAV Blob from chunk records (each {seq, buf:Int16Array}) sorted by seq.
 function chunksToWavBlob(chunkRecs, rate){
   chunkRecs.sort((a,b)=>a.seq-b.seq);
-  let total=0; for(const c of chunkRecs) total += c.buf.length;
-  const parts=[wavHeader(total, rate)];
-  for(const c of chunkRecs) parts.push(c.buf.buffer);   // Int16 little-endian == WAV PCM byte order
-  return { blob:new Blob(parts,{type:"audio/wav"}), samples:total };
+  const samples=chunkRecs.reduce((n,c)=>n+c.buf.length,0);
+  // Typed-array views preserve byteOffset/byteLength; .buffer could include unrelated samples.
+  return {blob:new Blob([wavHeader(samples,rate),...chunkRecs.map(c=>c.buf)],{type:"audio/wav"}),samples};
 }
-// Read all chunks for a session (returns []).
-async function readChunks(db, sid){
-  return new Promise((resolve)=>{ const out=[];
-    try{
-      const store=db.transaction("chunks","readonly").objectStore("chunks");
-      const range=IDBKeyRange.bound([sid,-Infinity],[sid,Infinity]);
-      const req=store.openCursor(range);
-      req.onsuccess=()=>{ const cur=req.result; if(cur){ out.push(cur.value); cur.continue(); } else resolve(out); };
-      req.onerror=()=>resolve(out);
-    }catch(e){ resolve(out); }
-  });
+async function readChunks(db,sid){
+  const chunks=await idbReq(db.transaction("chunks","readonly").objectStore("chunks").getAll(sessionRange(sid)));
+  return chunks.sort((a,b)=>a.seq-b.seq);
 }
-async function deleteSessionChunks(db, sid){
-  return new Promise((resolve)=>{ try{
-    const store=db.transaction("chunks","readwrite").objectStore("chunks");
-    const range=IDBKeyRange.bound([sid,-Infinity],[sid,Infinity]);
-    const req=store.openCursor(range);
-    req.onsuccess=()=>{ const cur=req.result; if(cur){ cur.delete(); cur.continue(); } else resolve(); };
-    req.onerror=()=>resolve();
-  }catch(e){ resolve(); } });
+async function deleteSessionChunks(db,sid){
+  await idbCommit(db,"chunks",tx=>tx.objectStore("chunks").delete(sessionRange(sid)));
 }
-
 async function acquireWakeLock(){
-  if(!('wakeLock' in navigator)){ el("err").textContent = tt(STR.keepawake); return; }
-  try{ wakeLock = await navigator.wakeLock.request('screen'); }
-  catch(e){ /* request() can reject if the doc isn't focused — non-fatal, keep recording */ }
+  if(!('wakeLock' in navigator)){ if(!captureFailure) el("err").textContent=tt(STR.keepawake); return; }
+  if(wakeLock&&!wakeLock.released)return;
+  const lockSession=sessionId;
+  try{
+    const lock=await navigator.wakeLock.request('screen');
+    if(recording&&sessionId===lockSession) wakeLock=lock; else await lock.release();
+  }catch(e){ if(recording && !captureFailure) el("err").textContent=tt(STR.keepawake); }
 }
-
 function setRecUI(){
-  el("recbtn").textContent = recording ? tt(STR.stop) : tt(STR.rec);
-  el("recbtn").classList.toggle("rec", recording);
+  el("recbtn").textContent=(!initReady || captureBusy) ? captureMessage("Aguarde…","Please wait…") : recording ? tt(STR.stop) : tt(STR.rec);
+  el("recbtn").disabled=!initReady || captureBusy || recorderLeaseAllowed===false;
+  el("recbtn").classList.toggle("rec",recording);
 }
-function toggle(){ recording ? stop() : start(); }
-
-async function start(){
-  el("err").textContent="";
-  try{
-    stream = await navigator.mediaDevices.getUserMedia({ audio:{
-      echoCancellation:false, noiseSuppression:false, autoGainControl:false, channelCount:1 }});
-  }catch(e){ el("err").textContent = tt(STR.micblock)+e.message; return; }
-  ctx = new (window.AudioContext||window.webkitAudioContext)();
-  if(ctx.state==="suspended") await ctx.resume();
-  recRate = ctx.sampleRate;
-  source = ctx.createMediaStreamSource(stream);
-  processor = ctx.createScriptProcessor(4096,1,1);
-  zero = ctx.createGain(); zero.gain.value = 0;
-  sessionPeak=0; capturedSamples=0; lastAudioMs=Date.now();
-  clipSamples=0; takeWarned=false;
-  el("takewarn").className="takewarn"; el("takewarn").textContent="";
-  const label=(el("label").value||"rec").replace(/\s+/g,"-");
-  sessionId = String(Date.now())+"_"+label;
-  chunkSeq=0; pendingI16=[]; pendingLen=0; memChunks=[];
-  dbReady().then(db=>{ if(!db) return;
-    try{ db.transaction("sessions","readwrite").objectStore("sessions")
-          .put({sessionId, rate:recRate, label, ts:Date.now(), done:false}); }catch(e){}
-  });
-  processor.onaudioprocess = (e)=>{
-    const inp = e.inputBuffer.getChannelData(0);
-    const i16 = f32ToI16(inp);
-    pendingI16.push(i16); pendingLen += i16.length;
-    capturedSamples += inp.length; lastAudioMs = Date.now();
-    if(pendingLen >= recRate){ flushPending(); }   // ~1s of audio -> persist a chunk
-    if(el("err").textContent) el("err").textContent="";
-    // Track peak, RMS and — critically — the FRACTION of saturated samples. Peak alone can't
-    // distinguish "one sample kissed full scale" from "the muzzle blast was flat-topped for 20 ms",
-    // and it is the fraction that decides whether the take is analysable.
-    let pk=0,sum=0,clipped=0;
-    for(let i=0;i<inp.length;i++){ const v=Math.abs(inp[i]); if(v>pk)pk=v; if(v>=0.99)clipped++; sum+=inp[i]*inp[i]; }
-    const rms=Math.sqrt(sum/inp.length); if(pk>sessionPeak)sessionPeak=pk;
-    clipSamples += clipped;
-    if(clipped>0 && !takeWarned){
-      takeWarned=true;
-      el("takewarn").className="takewarn on";
-      el("takewarn").textContent=tt(STR.warnClip);
-    }
-    const db = rms>1e-6 ? Math.round(20*Math.log10(rms)) : -120;
-    el("meterbar").style.width = Math.min(100,Math.max(0,(db+60)/60*100))+"%";
-    el("meter").classList.toggle("clip", pk>=0.99);
-    el("db").textContent = (db<=-120?"–∞":db)+" dB";
-    el("pk").textContent = tt(STR.peak)+" "+Math.round(Math.min(1,sessionPeak)*100)+"%";
-  };
-  source.connect(processor); processor.connect(zero); zero.connect(ctx.destination);
-  recording=true; startMs=Date.now(); setRecUI();
-  // Start accelerometer logging (ADDITIVE, non-fatal; requestPermission valid here on user gesture)
-  accelSamples = []; accelOK = false; el("accelnote").textContent = "";
-  try{
-    if(typeof DeviceMotionEvent !== "undefined" && typeof DeviceMotionEvent.requestPermission === "function"){
-      try{ await DeviceMotionEvent.requestPermission(); }catch(e){ /* user declined / non-secure ctx — keep recording without accel */ }
-    }
-    if(typeof window !== "undefined" && window.addEventListener){
-      _accelHandler = onDeviceMotion;
-      window.addEventListener("devicemotion", _accelHandler);
-    }
-  }catch(e){ /* accel is best-effort; never block audio capture */ }
-  setTimeout(()=>{ if(recording && !accelOK){ el("accelnote").textContent = tt(STR.accelOff); } }, 1500);  // ~1.5s in: if no motion samples arrived, tell the user (no silent drop)
-  acquireWakeLock();
-  if(!visHandlerBound){ visHandlerBound=true; document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='visible' && recording) acquireWakeLock(); }); }
-  ctx.onstatechange = ()=>{ if(recording && (ctx.state==='suspended'||ctx.state==='interrupted')){ ctx.resume().catch(()=>{}); } };
-  timerId=setInterval(()=>{ const s=Math.floor(capturedSamples/recRate);
-    el("timer").textContent=String(Math.floor(s/60)).padStart(2,"0")+":"+String(s%60).padStart(2,"0");
-    if(recording && Date.now()-lastAudioMs > 1500){ el("err").textContent = tt(STR.stall); }
-  },200);
+function toggle(){ if(captureBusy) return; return recording ? stop() : start(); }
+function safeCaptureLabel(value){
+  return String(value||"rec").normalize("NFD").replace(/[\u0300-\u036f]/g,"")
+    .replace(/[^a-zA-Z0-9._-]+/g,"-").slice(0,80)||"rec";
 }
-
-async function stop(){
-  recording=false; clearInterval(timerId);
-  // Stop accel listener and snapshot EARLY (before async IDB work)
-  try{ if(_accelHandler && typeof window!=="undefined" && window.removeEventListener){ window.removeEventListener("devicemotion", _accelHandler); } }catch(e){}
-  _accelHandler = null;
-  const accelSnapshot = accelSamples.slice();
-  try{ processor.disconnect(); source.disconnect(); zero.disconnect(); }catch(e){}
-  stream.getTracks().forEach(t=>t.stop());
-  ctx.close();
-  flushPending();   // (a) flush final pending batch into chunks
-  setRecUI();
-  el("err").textContent=""; el("meterbar").style.width="0"; el("meter").classList.remove("clip"); el("timer").textContent="00:00";
-
-  const label=(el("label").value||"rec").replace(/\s+/g,"-");
-  const stamp=new Date().toISOString().replace(/[-:T]/g,"").slice(0,15);
-  const dev=devSlug();
-  const name=`ozni_${dev?dev+"_":""}${label}_${stamp}_${recRate}hz.wav`;
-  const sid=sessionId;
-
-  // Per-take quality verdict — computed once, carried with the recording, shown in the list.
-  // The whole point: a shooter finds out the take is unusable NOW, while they can still
-  // re-record, instead of weeks later during analysis.
-  const clipFrac = capturedSamples ? clipSamples/capturedSamples : 0;
-  const quality = { verdict: assessTake(sessionPeak, clipFrac), peak: sessionPeak, clipFrac };
-  showTakeVerdict(quality);
-
-  const db=await dbReady();
-  if(db){
-    try{
-      const recsForSession=await readChunks(db, sid);          // (b) read chunks back in seq order
-      const {blob, samples}=chunksToWavBlob(recsForSession, recRate);
-      const rec={ id:sid, name, blob, dur:samples/recRate, rate:recRate, done:true, ts:Date.now(), accel:accelSnapshot, quality };
-      await idbReq(db.transaction("recordings","readwrite").objectStore("recordings").put(rec));  // (c) persist finalized
-      // (d) mark session done + delete its chunks
-      try{ db.transaction("sessions","readwrite").objectStore("sessions").put({sessionId:sid, rate:recRate, label, ts:Date.now(), done:true}); }catch(e){}
-      await deleteSessionChunks(db, sid);
-      recs.unshift({blob:rec.blob, name:rec.name, dur:rec.dur, id:rec.id, uploaded:false, accel:accelSnapshot, quality});  // in-memory list mirrors persisted
-    }catch(e){ handleIdbError(e); }
-  } else {
-    // No IDB (e.g. private mode without storage): assemble from the in-memory fallback chunks
-    // that flushPending retained, so the user still gets the FULL clip (not just the last batch).
-    const {blob, samples}=chunksToWavBlob(memChunks.slice(), recRate);
-    recs.unshift({blob, name, dur: samples ? samples/recRate : capturedSamples/recRate, id:sid, uploaded:false, accel:accelSnapshot, quality});
+function stopMediaStream(value){
+  if(!value)return;
+  for(const track of value.getTracks()){
+    track.onended=null;track.onmute=null;
+    try{track.stop();}catch(e){}
   }
-  renderList();   // (e) render BEFORE releasing the lock
-  // (f) ONLY NOW release the wake lock — last.
-  if(wakeLock){ try{ await wakeLock.release(); }catch(e){} wakeLock=null; }
+}
+function waitForStartup(promise,milliseconds,message,attempt){
+  const result=new Promise((resolve,reject)=>{
+    let settled=false;
+    const finish=(callback,value)=>{
+      if(settled)return;settled=true;clearTimeout(timer);attempt.cancellers.delete(cancel);callback(value);
+    };
+    const cancel=()=>finish(reject,new Error(captureMessage("Inicialização interrompida. Toque Gravar para tentar novamente.",
+      "Startup interrupted. Tap Record to retry.")));
+    const timer=setTimeout(()=>finish(reject,new Error(message)),milliseconds);
+    attempt.cancellers.add(cancel);
+    Promise.resolve(promise).then(value=>finish(resolve,value),error=>finish(reject,error));
+  });
+  // Attach immediately: a later synchronous API exception must not orphan this rejection.
+  result.catch(()=>{});
+  return result;
+}
+function abandonStartup(attempt){
+  if(!attempt)return;attempt.abandoned=true;
+  for(const cancel of [...attempt.cancellers])cancel();
+}
+function bindLifecycleEvents(){
+  if(visHandlerBound || typeof window.addEventListener!=="function")return;
+  visHandlerBound=true;
+  const interrupt=()=>{
+    if(recording)void stop('page_hidden');
+    else if(activeStartup)abandonStartup(activeStartup);
+  };
+  document.addEventListener('visibilitychange',()=>{
+    if(document.visibilityState==='hidden')interrupt();
+    else if(recording&&document.visibilityState==='visible')acquireWakeLock();
+  });
+  window.addEventListener('pagehide',interrupt);
+  window.addEventListener('pageshow',event=>{
+    if(event.persisted){
+      recorderLeaseAllowed=false;
+      if(activeStartup)abandonStartup(activeStartup);
+      captureFailure=captureMessage("Sessão restaurada. Envie gravações pendentes e recarregue antes de gravar novamente.",
+        "Session restored. Share pending recordings and reload before recording again.");
+      showCaptureFailure();setRecUI();
+    }
+  });
+}
+async function releaseCaptureResources(){
+  clearInterval(timerId); timerId=null;
+  try{ if(_accelHandler) window.removeEventListener("devicemotion",_accelHandler); }catch(e){}
+  _accelHandler=null;
+  if(processor) processor.onaudioprocess=null;
+  for(const node of [processor,source,zero]){ try{ if(node) node.disconnect(); }catch(e){} }
+  stopMediaStream(stream);
+  const closingContext=ctx;
+  ctx=null;stream=null;processor=null;source=null;zero=null;
+  if(closingContext){
+    closingContext.onstatechange=null;
+    let timer;
+    try{
+      await Promise.race([Promise.resolve(closingContext.close()).catch(()=>{}),
+        new Promise(resolve=>{timer=setTimeout(resolve,1000);})]);
+    }catch(e){}finally{clearTimeout(timer);}
+  }
+}
+async function start(){
+  if(!initReady || recording || captureBusy) return;
+  captureBusy=true;setRecUI();
+  const attempt={abandoned:false,cancellers:new Set(),stream:null};
+  activeStartup=attempt;
+  try{
+    if(recorderLeaseAllowed===false){showCaptureFailure();return;}
+    captureFailure="";el("err").textContent="";stopPromise=null;
+    const label=safeCaptureLabel(el("label").value), deviceSlug=devSlug();
+    const deviceName=getDeviceName(),mode=state.mode;
+    const model=el("device-model").value, osVersion=el("device-os").value;
+    if(typeof OzniMetadata==="undefined" || typeof OzniMetadata.collect!=="function")
+      throw new Error(captureMessage("Metadados não carregaram. Reconecte à internet e recarregue a página.","Metadata did not load. Reconnect and reload the page."));
+    const requestedConstraints={audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false,channelCount:1}};
+    // Both permission-sensitive calls happen in the original tap, before ANY await.
+    ctx=new (window.AudioContext||window.webkitAudioContext)();
+    const contextReady=waitForStartup(ctx.resume(),5000,captureMessage(
+      "O áudio não iniciou. Toque Gravar novamente com esta página aberta.",
+      "Audio did not start. Tap Record again with this page open."),attempt);
+    const microphone=Promise.resolve(navigator.mediaDevices.getUserMedia(requestedConstraints)).then(value=>{
+      if(attempt.abandoned){stopMediaStream(value);return null;}
+      attempt.stream=value;return value;
+    });
+    const microphoneReady=waitForStartup(microphone,30000,captureMessage(
+      "O microfone não respondeu. Confira a permissão e toque Gravar novamente.",
+      "The microphone did not respond. Check permission and tap Record again."),attempt);
+    const [,grantedStream]=await Promise.all([contextReady,microphoneReady]);
+    if(attempt.abandoned)throw new Error(captureMessage("Inicialização interrompida. Tente novamente.","Startup interrupted. Retry."));
+    stream=grantedStream;
+    if(ctx.state!=="running")throw new Error(captureMessage("O áudio está suspenso. Toque Gravar novamente.","Audio is suspended. Tap Record again."));
+    recRate=ctx.sampleRate;
+    sessionId=(typeof crypto!=="undefined" && crypto.randomUUID) ? crypto.randomUUID() : String(Date.now())+"_"+Math.random().toString(16).slice(2);
+    const startedAt=new Date().toISOString(),ts=Date.now();
+    const metadata=await OzniMetadata.collect({navigator,track:stream.getAudioTracks()[0],audioContextRate:recRate,
+      version:VERSION,sessionId,startedAt,model,osVersion,deviceName,mode,label,requestedConstraints:requestedConstraints.audio});
+    const stamp=startedAt.replace(/[-:T.Z]/g,"");
+    const name=`ozni_${deviceSlug?deviceSlug+"_":""}${label}_${stamp}_${recRate}hz.wav`;
+    activeSession={sessionId,rate:recRate,label,name,ts,startedAt,metadata,done:false};
+    chunkSeq=0;pendingI16=[];pendingLen=0;memChunks=[];chunkWrites=Promise.resolve();
+    const db=await dbReady();
+    if(db) await idbCommit(db,"sessions",tx=>tx.objectStore("sessions").put(activeSession));
+    else {
+      captureFailure=captureMessage("⚠️ Sem armazenamento local. Envie ou baixe antes de fechar a página.",
+        "⚠️ Local storage unavailable. Share or download before closing the page.");showCaptureFailure();
+    }
+    if(attempt.abandoned || recorderLeaseAllowed===false || document.visibilityState==="hidden")
+      throw new Error(captureMessage("Inicialização interrompida. Tente novamente com a página aberta.","Startup interrupted. Retry with the page open."));
+    source=ctx.createMediaStreamSource(stream);processor=ctx.createScriptProcessor(4096,1,1);
+    zero=ctx.createGain();zero.gain.value=0;
+    sessionPeak=0;capturedSamples=0;clipSamples=0;takeWarned=false;lastAudioMs=Date.now();
+    accelSamples=[];accelOK=false;el("accelnote").textContent="";
+    el("takewarn").className="takewarn";el("takewarn").textContent="";
+    processor.onaudioprocess=e=>{
+      if(!recording) return;
+      const input=e.inputBuffer.getChannelData(0);
+      const remaining=Math.max(0,CAPTURE_MAX_SECONDS*activeSession.rate-capturedSamples);
+      const inp=input.subarray(0,remaining);
+      if(!inp.length){ void stop("duration_limit");return; }
+      pendingI16.push(f32ToI16(inp));pendingLen+=inp.length;
+      capturedSamples+=inp.length;lastAudioMs=Date.now();
+      if(pendingLen>=activeSession.rate) flushPending();
+      let pk=0,sum=0,clipped=0;
+      for(let i=0;i<inp.length;i++){const v=Math.abs(inp[i]);if(v>pk)pk=v;if(v>=0.99)clipped++;sum+=inp[i]*inp[i];}
+      const rms=Math.sqrt(sum/inp.length);if(pk>sessionPeak)sessionPeak=pk;clipSamples+=clipped;
+      if(clipped>0&&!takeWarned){takeWarned=true;el("takewarn").className="takewarn on";el("takewarn").textContent=tt(STR.warnClip);}
+      const db=rms>1e-6?Math.round(20*Math.log10(rms)):-120;
+      el("meterbar").style.width=Math.min(100,Math.max(0,(db+60)/60*100))+"%";
+      el("meter").classList.toggle("clip",pk>=0.99);el("db").textContent=(db<=-120?"–∞":db)+" dB";
+      el("pk").textContent=tt(STR.peak)+" "+Math.round(Math.min(1,sessionPeak)*100)+"%";
+      if(capturedSamples>=CAPTURE_MAX_SECONDS*activeSession.rate) void stop("duration_limit");
+    };
+    startMs=Date.now();recording=true;captureBusy=false;setRecUI();
+    source.connect(processor);processor.connect(zero);zero.connect(ctx.destination);
+    // Motion is optional; permission failure never changes microphone capture status.
+    const thisSession=sessionId;
+    try{
+      const permission=typeof DeviceMotionEvent!=="undefined"&&typeof DeviceMotionEvent.requestPermission==="function"
+        ? DeviceMotionEvent.requestPermission() : Promise.resolve("granted");
+      Promise.resolve(permission).then(result=>{
+        if(result!=="denied"&&recording&&sessionId===thisSession){_accelHandler=onDeviceMotion;window.addEventListener("devicemotion",_accelHandler);}
+      }).catch(()=>{});
+    }catch(e){}
+    setTimeout(()=>{if(recording&&sessionId===thisSession&&!accelOK)el("accelnote").textContent=tt(STR.accelOff);},1500);
+    for(const track of stream.getAudioTracks()){
+      track.onended=()=>{if(recording)void stop("track_ended");};
+      track.onmute=()=>{if(recording)void stop("track_muted");};
+    }
+    ctx.onstatechange=()=>{if(recording&&ctx&&(ctx.state==="suspended"||ctx.state==="interrupted"||ctx.state==="closed"))void stop("audio_interrupted");};
+    acquireWakeLock();
+    bindLifecycleEvents();
+    timerId=setInterval(()=>{
+      const seconds=Math.floor(capturedSamples/activeSession.rate);
+      el("timer").textContent=String(Math.floor(seconds/60)).padStart(2,"0")+":"+String(seconds%60).padStart(2,"0");
+      if(recording&&Date.now()-startMs>=CAPTURE_MAX_SECONDS*1000)void stop("duration_limit");
+      else if(recording&&Date.now()-lastAudioMs>1500)void stop("audio_stalled");
+    },200);
+  }catch(e){
+    abandonStartup(attempt);
+    if(attempt.stream && attempt.stream!==stream)stopMediaStream(attempt.stream);
+    recording=false;await releaseCaptureResources();
+    el("err").textContent=(e&&e.name==="NotAllowedError" ? tt(STR.micblock)
+      : captureMessage("Não foi possível iniciar: ","Could not start: "))+(e&&e.message||String(e));
+  }finally{
+    for(const cancel of [...attempt.cancellers])cancel();
+    if(activeStartup===attempt)activeStartup=null;
+    captureBusy=false;setRecUI();
+  }
+}
+function stop(reason="user"){
+  if(stopPromise) return stopPromise;
+  if(!recording) return Promise.resolve();
+  recording=false;captureBusy=true;setRecUI();
+  const session=activeSession,accelSnapshot=accelSamples.slice();
+  const finalWrites=flushPending(); // queue the last batch before pagehide/close can suspend us
+  const clipFrac=capturedSamples?clipSamples/capturedSamples:0;
+  const quality={verdict:assessTake(sessionPeak,clipFrac),peak:sessionPeak,clipFrac};
+  stopPromise=(async()=>{
+    try{
+      await releaseCaptureResources();
+      await finalWrites;
+      const {blob,samples}=chunksToWavBlob(memChunks.slice(),session.rate);
+      const metadata=session.metadata ? {...session.metadata,captureEnd:{reason,endedAt:new Date().toISOString(),
+        capturedSamples:samples,savedSamples:samples,durationSeconds:samples/session.rate,interrupted:!["user","duration_limit"].includes(reason)}} : null;
+      const rec={id:session.sessionId,name:session.name,blob,dur:samples/session.rate,rate:session.rate,
+        done:true,ts:session.ts,accel:accelSnapshot,quality,metadata,capturedSamples:samples,savedSamples:samples,
+        recovered:false,uploaded:false,persisted:false};
+      const db=await dbReady();
+      if(db){try{await finalizeSession(db,session,{...rec,persisted:true});rec.persisted=true;}catch(e){handleIdbError(e);}}
+      recs.unshift(rec);memChunks=[];renderList();showTakeVerdict(quality);
+      if(captureFailure)showCaptureFailure();
+      else if(reason==="duration_limit")el("err").textContent=captureMessage("Gravação encerrada no limite de 60 segundos.","Recording stopped at the 60-second limit.");
+      else if(reason!=="user")el("err").textContent=captureMessage("⚠️ Captura interrompida. O áudio disponível foi recuperado; confira antes de enviar.","⚠️ Capture interrupted. Available audio was recovered; check it before sharing.");
+      el("meterbar").style.width="0";el("meter").classList.remove("clip");el("timer").textContent="00:00";
+    }catch(e){handleIdbError(e);}
+    finally{
+      if(wakeLock){try{await wakeLock.release();}catch(e){}wakeLock=null;}
+      captureBusy=false;setRecUI();
+    }
+  })();
+  return stopPromise;
 }
 
 function flatten(chunks){ let len=0; for(const c of chunks) len+=c.length;
@@ -604,11 +771,12 @@ function crc32(u8){
   return (c ^ 0xFFFFFFFF) >>> 0;
 }
 
-// Build a minimal STORED (method 0) zip containing exactly one entry.
+// Build a minimal STORED (method 0) zip containing one or several entries.
 // STORE (method 0) is deliberate: WhatsApp ships .zip documents byte-for-byte, so the
 // uncompressed WAV inside survives the transfer without any re-encoding.
 // bytes: Uint8Array of file bytes (e.g. WAV). Returns a single-part Blob "application/zip".
 function makeStoredZip(filename, bytes){
+  if(Array.isArray(filename)) return makeStoredZipEntries(filename);
   const size = bytes.length;
   const crc  = crc32(bytes);
   // Encode filename — TextEncoder is a standard global in both browser and Node (not DOM).
@@ -673,6 +841,85 @@ function makeStoredZip(filename, bytes){
 
   // Single-part, exactly-sized buffer — required so the Node shim Blob captures all bytes.
   return new Blob([new Uint8Array(buf)], {type:"application/zip"});
+}
+
+// Multiple entries keep the PCM and its provenance together through document sharing.
+function makeStoredZipEntries(entries){
+  const prepared = entries.map(({name, bytes})=>({name:new TextEncoder().encode(name),bytes,crc:crc32(bytes)}));
+  const dataSize = prepared.reduce((n,e)=>n+30+e.name.length+e.bytes.length,0);
+  const cdSize = prepared.reduce((n,e)=>n+46+e.name.length,0);
+  const buf = new ArrayBuffer(dataSize+cdSize+22), v=new DataView(buf), out=new Uint8Array(buf);
+  let local=0, central=dataSize;
+  for(const e of prepared){
+    v.setUint32(local,0x04034b50,true); v.setUint16(local+4,20,true);
+    v.setUint16(local+6,0x800,true); // UTF-8 names
+    v.setUint32(local+14,e.crc,true); v.setUint32(local+18,e.bytes.length,true);
+    v.setUint32(local+22,e.bytes.length,true); v.setUint16(local+26,e.name.length,true);
+    out.set(e.name,local+30); out.set(e.bytes,local+30+e.name.length);
+    v.setUint32(central,0x02014b50,true); v.setUint16(central+4,20,true); v.setUint16(central+6,20,true);
+    v.setUint16(central+8,0x800,true); v.setUint32(central+16,e.crc,true);
+    v.setUint32(central+20,e.bytes.length,true); v.setUint32(central+24,e.bytes.length,true);
+    v.setUint16(central+28,e.name.length,true); v.setUint32(central+42,local,true);
+    out.set(e.name,central+46);
+    local += 30+e.name.length+e.bytes.length; central += 46+e.name.length;
+  }
+  v.setUint32(central,0x06054b50,true); v.setUint16(central+8,prepared.length,true);
+  v.setUint16(central+10,prepared.length,true); v.setUint32(central+12,cdSize,true);
+  v.setUint32(central+16,dataSize,true);
+  return new Blob([out],{type:"application/zip"});
+}
+
+async function buildRecordingZip(rec){
+  const base=rec.name.replace(/\.wav$/i,"");
+  const entries=[{name:rec.name,blob:rec.blob},
+    {name:base+".metadata.json",blob:new Blob([JSON.stringify(OzniMetadata.exportForRecording(rec),null,2)])}];
+  if(rec.accel?.length) entries.push({name:base+".accel.json",blob:new Blob([JSON.stringify({rate:rec.rate,dur:rec.dur,samples:rec.accel})])});
+  // Read at most 1 MiB at a time, and compose the archive from Blob references.
+  // Legacy v2.1 takes can be much longer than today's 60s cap.
+  const localParts=[],centralParts=[]; let offset=0,centralSize=0;
+  for(const entry of entries){
+    const name=new TextEncoder().encode(entry.name),size=entry.blob.size;
+    if(size>0xffffffff || offset+size+30+name.length>0xffffffff) throw new Error("ZIP32 size exceeded");
+    let crc=0xffffffff;
+    for(let pos=0;pos<size;pos+=1024*1024){
+      const chunk=new Uint8Array(await entry.blob.slice(pos,pos+1024*1024).arrayBuffer());
+      for(const byte of chunk) crc=(crc>>>8)^CRC32_TABLE[(crc^byte)&255];
+    }
+    crc=(crc^0xffffffff)>>>0;
+    const local=new Uint8Array(30+name.length),lv=new DataView(local.buffer);
+    lv.setUint32(0,0x04034b50,true);lv.setUint16(4,20,true);lv.setUint16(6,0x800,true);
+    lv.setUint32(14,crc,true);lv.setUint32(18,size,true);lv.setUint32(22,size,true);lv.setUint16(26,name.length,true);local.set(name,30);
+    const central=new Uint8Array(46+name.length),cv=new DataView(central.buffer);
+    cv.setUint32(0,0x02014b50,true);cv.setUint16(4,20,true);cv.setUint16(6,20,true);cv.setUint16(8,0x800,true);
+    cv.setUint32(16,crc,true);cv.setUint32(20,size,true);cv.setUint32(24,size,true);cv.setUint16(28,name.length,true);
+    cv.setUint32(42,offset,true);central.set(name,46);
+    localParts.push(local,entry.blob);centralParts.push(central);offset+=local.length+size;centralSize+=central.length;
+  }
+  const end=new DataView(new ArrayBuffer(22));end.setUint32(0,0x06054b50,true);
+  end.setUint16(8,entries.length,true);end.setUint16(10,entries.length,true);
+  end.setUint32(12,centralSize,true);end.setUint32(16,offset,true);
+  return new Blob([...localParts,...centralParts,end],{type:"application/zip"});
+}
+
+// Prepare outside the tap handler. Safari requires a fresh user activation for file sharing.
+// Cache only three short clips; old clips remain durable and can be prepared again on demand.
+const exportCache = new Map();
+const exportAutoPrepared = new WeakSet();
+const EXPORT_AUTO_MAX_BYTES=12*1024*1024, EXPORT_CACHE_MAX_BYTES=24*1024*1024;
+function prepareExport(rec){
+  if(exportCache.has(rec)) return exportCache.get(rec).promise;
+  const item={file:null,error:null,promise:null};
+  exportCache.set(rec,item);
+  let cacheBytes=0;
+  for(const r of [...exportCache.keys()].reverse()){
+    cacheBytes+=r.blob.size;
+    if(r!==rec && (cacheBytes>EXPORT_CACHE_MAX_BYTES || exportCache.size>3)) exportCache.delete(r);
+  }
+  item.promise=buildRecordingZip(rec).then(blob=>{
+    item.file=new File([blob],rec.name.replace(/\.wav$/i,"")+".zip",{type:"application/zip"});
+    renderList(); return item.file;
+  }).catch(error=>{item.error=error; renderList(); return null;});
+  return item.promise;
 }
 
 // ---- deviceId (localStorage inside the function — never accessed at top level) ----
@@ -785,7 +1032,9 @@ function renderList(){
   list.innerHTML="";
   recs.forEach((r,i)=>{
     const row=document.createElement("div"); row.className="rec";
-    row.innerHTML = `<span class="nm">${r.name}</span><span class="du">${r.dur.toFixed(1)}s</span>`;
+    const nm=document.createElement("span"); nm.className="nm"; nm.textContent=r.name;
+    const du=document.createElement("span"); du.className="du"; du.textContent=r.dur.toFixed(1)+"s";
+    row.appendChild(nm); row.appendChild(du);
     // Quality verdict travels with the take, so a bad one stays visibly bad in the list.
     const qt = qualityText(r.quality);
     if(qt){
@@ -798,7 +1047,14 @@ function renderList(){
       else { cloud.textContent=tt(STR.uploadIdle); cloud.onclick=()=>doUpload(i, cloud); }
       row.appendChild(cloud);
     }
-    const zipBtn=document.createElement("button"); zipBtn.className = UPLOAD_ENABLED ? "sec" : "cloud"; zipBtn.textContent=tt(STR.zipFallback); zipBtn.onclick=()=>share(i); row.appendChild(zipBtn);   // primary action when auto-upload is off
+    if(i===0 && r.blob.size<=EXPORT_AUTO_MAX_BYTES && !exportAutoPrepared.has(r)){
+      exportAutoPrepared.add(r); prepareExport(r);
+    }
+    const cached=exportCache.get(r);
+    const zipBtn=document.createElement("button"); zipBtn.className = UPLOAD_ENABLED ? "sec" : "cloud";
+    zipBtn.textContent=tt(cached?.file ? STR.zipFallback : cached && !cached.error ? STR.zipPreparing : STR.zipPrepare);
+    zipBtn.disabled=!!(cached && !cached.file && !cached.error);
+    zipBtn.onclick=()=>share(i); row.appendChild(zipBtn);
     const wavBtn=document.createElement("button"); wavBtn.className="sec"; wavBtn.textContent=tt(STR.wav); wavBtn.onclick=()=>shareWav(i); row.appendChild(wavBtn);
     if(r.accel && r.accel.length){
       const accBtn=document.createElement("button"); accBtn.className="sec";
@@ -808,6 +1064,16 @@ function renderList(){
       const tip=document.createElement("div"); tip.className="qtip"; tip.textContent=qt.tip;
       row.appendChild(tip);
     }
+    if(r.persisted===false){
+      const warning=document.createElement("div"); warning.className="qtip"; warning.textContent=tt(STR.temporary); row.appendChild(warning);
+    }
+    if(r.integrity?.recovered){
+      const warning=document.createElement("div"); warning.className="qtip"; warning.textContent=tt(STR.recoveredTake); row.appendChild(warning);
+    }else if(r.metadata?.captureEnd?.interrupted){
+      const warning=document.createElement("div"); warning.className="qtip"; warning.textContent=tt(STR.interruptedTake); row.appendChild(warning);
+    }
+    const del=document.createElement("button"); del.className="sec"; del.textContent=tt(STR.delete);
+    del.onclick=()=>deleteRecording(r); row.appendChild(del);
     list.appendChild(row);
   });
 }
@@ -876,15 +1142,46 @@ async function markUploaded(id){
 // and delivers it byte-for-byte (WhatsApp transcodes raw audio to Opus, destroying quality).
 async function share(i){
   const r=recs[i];
-  const wavBytes=new Uint8Array(await r.blob.arrayBuffer());
-  const zipBlob=makeStoredZip(r.name, wavBytes);
-  const zipName=r.name.replace(/\.wav$/i,"")+".zip";
-  const file=new File([zipBlob], zipName, {type:"application/zip"});
-  if(navigator.canShare && navigator.canShare({files:[file]})){
-    try{ await navigator.share({files:[file], title:zipName}); return; }catch(e){ if(e.name==="AbortError")return; }
+  let file=exportCache.get(r)?.file;
+  if(!file){
+    if(exportCache.get(r)?.error) exportCache.delete(r);
+    const preparing=prepareExport(r); renderList();
+    file=await preparing;
+    if(!file) el("err").textContent=tt(STR.zipError);
+    // A second, fresh tap opens the share sheet once the file is ready.
+    return;
   }
-  const a=document.createElement("a"); a.href=URL.createObjectURL(zipBlob); a.download=zipName;
+  if(navigator.canShare && navigator.canShare({files:[file]})){
+    try{ await navigator.share({files:[file], title:file.name}); return; }catch(e){ if(e.name==="AbortError")return; }
+  }
+  downloadFile(file,file.name);
+  el("err").textContent=tt(STR.downloaded);
+}
+
+function downloadFile(blob,name){
+  const url=URL.createObjectURL(blob), a=document.createElement("a"); a.href=url; a.download=name;
   document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),60000);
+}
+
+async function deleteRecording(rec){
+  if(recorderLeaseAllowed===false) return;
+  if(!confirm(tt(STR.deleteConfirm))) return;
+  try{
+    const db=await dbReady();
+    if(db) await new Promise((resolve,reject)=>{
+      const tx=db.transaction(["recordings","sessions","chunks"],"readwrite");
+      tx.oncomplete=resolve; tx.onabort=()=>reject(tx.error||new Error("Delete aborted")); tx.onerror=()=>{};
+      tx.objectStore("recordings").delete(rec.id);
+      const sid=rec.sessionId || rec.id?.replace(/_rec$/,"");
+      if(sid){
+        tx.objectStore("sessions").delete(sid);
+        const cursor=tx.objectStore("chunks").openCursor(IDBKeyRange.bound([sid,0],[sid,Number.MAX_SAFE_INTEGER]));
+        cursor.onsuccess=()=>{const c=cursor.result;if(c){c.delete();c.continue();}};
+      }
+    });
+    exportCache.delete(rec); recs=recs.filter(r=>r!==rec); renderList();
+  }catch(e){el("err").textContent=state.lang==="pt" ? "Não foi possível apagar. Tente de novo." : "Could not delete. Try again.";}
 }
 
 // Secondary share: raw WAV — for the user's own AirDrop-to-Mac / email flow.
@@ -893,8 +1190,7 @@ async function shareWav(i){
   if(navigator.canShare && navigator.canShare({files:[file]})){
     try{ await navigator.share({files:[file], title:r.name}); return; }catch(e){ if(e.name==="AbortError")return; }
   }
-  const a=document.createElement("a"); a.href=URL.createObjectURL(r.blob); a.download=r.name;
-  document.body.appendChild(a); a.click(); a.remove();
+  downloadFile(r.blob,r.name);
 }
 
 // Accel sidecar download/share — mirrors shareWav fallback shape exactly.
@@ -909,8 +1205,7 @@ async function shareAccel(i){
   if(navigator.canShare && navigator.canShare({files:[file]})){
     try{ await navigator.share({files:[file], title:jsonName}); return; }catch(e){ if(e.name==="AbortError")return; }
   }
-  const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download=jsonName;
-  document.body.appendChild(a); a.click(); a.remove();
+  downloadFile(blob,jsonName);
 }
 
 // Share the recorder page URL with a bilingual invite; clipboard fallback shows a notice.
@@ -930,47 +1225,52 @@ async function shareRecorderLink(){
     const m = (new URLSearchParams(location.search).get("modo") || new URLSearchParams(location.search).get("mode") || "").toLowerCase();
     if(m === "tiro" || m === "tiros") state.mode = "tiro";
     else if(m === "fogos" || m === "fireworks") state.mode = "fogos";
+    else if(m === "teste" || m === "test") state.mode = "teste";
   }catch(e){ /* bad/absent URL params never break the page */ }
 })();
 el("label").value = MODES[state.mode].label0;
 el("devname").value = getDeviceName();
 el("devname").oninput = ()=>setDeviceName(el("devname").value);
+for(const id of ["device-model","device-os"]){
+  try{el(id).value=localStorage.getItem("ozni_"+id)||"";}catch(e){}
+  el(id).oninput=()=>{try{localStorage.setItem("ozni_"+id,el(id).value.trim());}catch(e){}};
+}
 render();
 
 async function init(){
-  const db=await dbReady(); if(!db) return;   // Node shim / no IDB -> nothing to load
+  bindLifecycleEvents();
+  if(!await acquireRecorderLease()){setRecUI();return;}
+  const db=await dbReady();if(!db)return;
   try{
-    // load finalized recordings -> recs[] (survive reloads)
     const finalized=await idbReq(db.transaction("recordings","readonly").objectStore("recordings").getAll());
     finalized.sort((a,b)=>(b.ts||0)-(a.ts||0));
-    for(const r of finalized) recs.push({blob:r.blob, name:r.name, dur:r.dur, id:r.id, uploaded:!!r.uploaded, accel:r.accel||null, quality:r.quality||null});
-    // recover interrupted sessions (done:false)
+    for(const r of finalized)recs.push({...r,metadata:r.metadata||null,persisted:true,uploaded:!!r.uploaded});
     const sessions=await idbReq(db.transaction("sessions","readonly").objectStore("sessions").getAll());
     let recovered=0;
     for(const s of sessions){
-      if(s.done) continue;
-      const chunkRecs=await readChunks(db, s.sessionId);
-      if(chunkRecs.length===0){ // nothing salvageable; clean up the stale session
-        try{ db.transaction("sessions","readwrite").objectStore("sessions").delete(s.sessionId); }catch(e){}
-        continue;
-      }
-      const {blob, samples}=chunksToWavBlob(chunkRecs, s.rate);
-      const stamp=new Date(s.ts||Date.now()).toISOString().replace(/[-:T]/g,"").slice(0,15);
-      const suffix = state.lang==="pt" ? "recuperado" : "recovered";
-      const dev=devSlug();
-      const name=`ozni_${dev?dev+"_":""}${(s.label||"rec")}-${suffix}_${stamp}_${s.rate}hz.wav`;
-      const id=s.sessionId+"_rec";
-      try{ await idbReq(db.transaction("recordings","readwrite").objectStore("recordings").put({id, name, blob, dur:samples/s.rate, rate:s.rate, done:true, ts:s.ts||Date.now()})); }catch(e){ handleIdbError(e); }
-      recs.unshift({blob, name, dur:samples/s.rate, id, uploaded:false, accel:null});
-      try{ db.transaction("sessions","readwrite").objectStore("sessions").put({...s, done:true}); }catch(e){}
-      await deleteSessionChunks(db, s.sessionId);
-      recovered++;
+      if(s.done)continue;
+      const chunks=await readChunks(db,s.sessionId);
+      if(!chunks.length){await idbCommit(db,"sessions",tx=>tx.objectStore("sessions").delete(s.sessionId));continue;}
+      const {blob,samples}=chunksToWavBlob(chunks,s.rate);
+      const stamp=new Date(s.ts||Date.now()).toISOString().replace(/[-:T.Z]/g,"");
+      // Never attach the CURRENT phone/user label to a historical recording.
+      const name=s.name||`ozni_${safeCaptureLabel(s.label)}_recovered_${stamp}_${s.rate}hz.wav`;
+      const sequenceGaps=chunks.some((c,i)=>c.seq!==i);
+      const metadata=s.metadata ? {...s.metadata,captureEnd:{reason:"recovered_after_reload",recovered:true,
+        capturedSamples:null,savedSamples:samples,durationSeconds:samples/s.rate,interrupted:true,missingTailUnknown:true}} : null;
+      const rec={id:s.sessionId,name,blob,dur:samples/s.rate,rate:s.rate,done:true,ts:s.ts||Date.now(),
+        metadata,capturedSamples:null,savedSamples:samples,recovered:true,
+        integrity:{recovered:true,sequenceGaps,missingTailUnknown:true},accel:null,quality:null,uploaded:false,persisted:false};
+      try{await finalizeSession(db,s,{...rec,persisted:true});rec.persisted=true;}
+      catch(e){handleIdbError(e);} // The atomic transaction leaves original chunks/session intact.
+      recs.unshift(rec);recovered++;
     }
     renderList();
-    if(recovered>0){ el("err").textContent = tt(STR.recovered).replace("{n}", recovered); }
-  }catch(e){ /* recovery is best-effort; never block the UI */ }
+    if(captureFailure)showCaptureFailure();
+    else if(recovered)el("err").textContent=tt(STR.recovered).replace("{n}",recovered);
+  }catch(e){handleIdbError(e);}
 }
-init();
+const initPromise=init().finally(()=>{initReady=true;setRecUI();});
 </script>
 </body>
 </html>
