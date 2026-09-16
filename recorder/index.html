@@ -66,6 +66,7 @@
   .consent{color:var(--muted);font-size:12px;margin:8px 0 0;line-height:1.45}
   .field-label{display:block;font-size:13px;margin:10px 0 5px;color:var(--muted)}
   button:disabled{opacity:.55;cursor:wait}
+  #retry-capture{margin:10px auto;background:var(--accent);color:#fff;border:0;border-radius:8px;padding:10px;font-size:14px}
   /* Per-take quality verdict — thresholds identical to spike/analysis/recording_quality.py, so a
      take the recorder calls good is a take the analysis pipeline also accepts. */
   .qbadge{font-size:11px;font-weight:700;border-radius:6px;padding:3px 7px;white-space:nowrap}
@@ -122,6 +123,7 @@
     <div class="timer" id="timer">00:00</div>
     <button class="recbtn" id="recbtn" onclick="toggle()"></button>
     <div class="err" id="err"></div>
+    <button id="retry-capture" type="button" hidden onclick="retryUnassembledTake()"></button>
     <p class="note" id="accelnote" style="text-align:center;margin-top:6px"></p>
   </div>
 
@@ -130,7 +132,7 @@
   <p class="foot" id="foot"></p>
 </div>
 
-<script src="metadata.js?v=2.2"></script>
+<script src="metadata.js?v=2.3"></script>
 <script>
 const STR = {
   title:{pt:"Ozni · Gravador de campo", en:"Ozni · Field recorder"},
@@ -149,11 +151,17 @@ const STR = {
   zipPreparing:{pt:"Preparando ZIP…", en:"Preparing ZIP…"},
   zipPrepare:{pt:"Preparar ZIP", en:"Prepare ZIP"},
   zipError:{pt:"Não deu para preparar o ZIP. Tente de novo ou salve o WAV.", en:"Could not prepare the ZIP. Try again or save the WAV."},
-  downloaded:{pt:"ZIP baixado. Anexe o arquivo como documento no WhatsApp e envie para Jonathan.", en:"ZIP downloaded. Attach the file as a document in WhatsApp and send it to Jonathan."},
+  backup:{pt:"Baixar ZIP",en:"Download ZIP"},
+  savedLocal:{pt:"Salvo neste navegador · guarde uma cópia do ZIP",en:"Saved in this browser · keep a ZIP backup"},
+  retrySave:{pt:"Tentar salvar novamente",en:"Retry save"},
+  retryCapture:{pt:"Tentar recuperar áudio",en:"Retry audio recovery"},
+  storageRequired:{pt:"Não foi possível acessar o armazenamento. Não começamos a gravar. Libere espaço, abra no Safari/Chrome fora do modo privado e recarregue. Não apague os dados deste site se houver gravações pendentes.",en:"Browser storage is unavailable. Recording has not started. Free space, open Safari/Chrome outside private mode and reload. Do not clear this site's data if you have pending recordings."},
+  unsavedBlocked:{pt:"Há áudio ainda não salvo. Baixe uma cópia e tente salvar novamente antes de começar outra gravação. Mantenha esta aba aberta.",en:"Some audio is not saved yet. Download a backup and retry saving before starting another recording. Keep this tab open."},
+  downloaded:{pt:"Download solicitado. Confira o ZIP na pasta Downloads/Arquivos antes de fechar. Depois envie como documento no WhatsApp. O original continua neste navegador.", en:"Download requested. Check the ZIP in Downloads/Files before closing. Then send it as a WhatsApp document. The original stays in this browser."},
   delete:{pt:"Apagar", en:"Delete"},
   deleteConfirm:{pt:"Apagar esta gravação deste navegador? Confira se você já enviou ou salvou o ZIP.", en:"Delete this recording from this browser? Check that you have already sent or saved the ZIP."},
   temporary:{pt:"Só nesta aba: o navegador não salvou esta gravação. Envie o ZIP antes de fechar.", en:"Only in this tab: the browser did not save this recording. Send the ZIP before closing."},
-  recoveredTake:{pt:"Gravação recuperada: o final pode estar faltando. Qualidade e movimento não foram recuperados; confira o áudio.", en:"Recovered recording: the end may be missing. Quality and motion were not recovered; check the audio."},
+  recoveredTake:{pt:"Gravação recuperada: partes do áudio ou o final podem estar faltando. Qualidade e movimento não foram recuperados; confira o áudio.", en:"Recovered recording: sections of audio or the end may be missing. Quality and motion were not recovered; check the audio."},
   interruptedTake:{pt:"Gravação interrompida. O arquivo contém apenas o áudio capturado; confira antes de enviar.", en:"Recording interrupted. The file contains only captured audio; check before sharing."},
   captureHelp:{pt:"Use Safari no iPhone ou Chrome no Android. Mantenha esta página visível e a tela ligada. Cada gravação para em 60 segundos. Fones Bluetooth mudam o microfone: desconecte-os para testar o celular.", en:"Use Safari on iPhone or Chrome on Android. Keep this page visible and the screen on. Each recording stops at 60 seconds. Bluetooth headsets change the microphone: disconnect them to test the phone."},
   modelLabel:{pt:"Modelo do celular (confira nos Ajustes)", en:"Phone model (check Settings)"},
@@ -303,7 +311,7 @@ const MODES = {
   },
 };
 
-const VERSION = "v2.2 · aparelho + sistema";   // bump on every recorder change; shown at top so a stale cache is obvious
+const VERSION = "v2.3 · proteção das gravações";   // bump on every recorder change; shown at top so a stale cache is obvious
 
 // ---- Supabase upload config (replace placeholders to enable; keep placeholders to deploy safe) ----
 // UNCONFIGURED BUILD: placeholder url does not match ^https:// → UPLOAD_ENABLED = false →
@@ -397,6 +405,19 @@ const CAPTURE_MAX_SECONDS = 60;
 let _dbPromise = null;
 let recorderLeaseAllowed=null, recorderLeasePromise=null;
 let initReady=false, activeStartup=null;
+let storageBlocked=false;
+function hasUnsafeRecording(){
+  return recs.some(rec=>rec.persisted===false) || (typeof hasUnassembledTake==="function" && hasUnassembledTake());
+}
+function requestDurableStorage(){
+  // The browser may decline. This improves eviction resistance; it is not a backup.
+  try{if(navigator.storage?.persist) Promise.resolve(navigator.storage.persist()).catch(()=>{});}catch(e){}
+}
+function beforeUnloadHandler(event){
+  if(recording || captureBusy || hasUnsafeRecording()){
+    event.preventDefault(); event.returnValue="";
+  }
+}
 function acquireRecorderLease(){
   if(recorderLeasePromise)return recorderLeasePromise;
   if(typeof indexedDB==="undefined"){recorderLeaseAllowed=true;return Promise.resolve(true);}
@@ -438,14 +459,21 @@ function idbReq(req){ return new Promise((res,rej)=>{ req.onsuccess=()=>res(req.
 // A request's success is NOT a transaction commit. Cleanup only follows oncomplete.
 function idbCommit(db, stores, write){
   return new Promise((resolve,reject)=>{
-    let tx;
+    let tx,timer,settled=false;
+    const finish=(callback,value)=>{if(settled)return;settled=true;clearTimeout(timer);callback(value);};
     try{
       tx=db.transaction(stores,"readwrite");
-      tx.oncomplete=()=>resolve();
-      tx.onabort=()=>reject(tx.error || new Error("Storage transaction aborted"));
-      tx.onerror=()=>{}; // onabort is the terminal result; never swallow an aborted write.
+      tx.oncomplete=()=>finish(resolve);
+      tx.onabort=()=>finish(reject,tx.error || new Error("Storage transaction aborted"));
+      tx.onerror=()=>{}; // onabort is terminal; never swallow an aborted write.
+      timer=setTimeout(()=>{
+        // A deadline is a failure, never proof of commit. Abort may race an already committed
+        // transaction; conservatively keep the memory recording marked unsaved in that case.
+        finish(reject,new Error("Storage transaction timed out"));
+        try{tx.abort();}catch(e){}
+      },15000);
       write(tx);
-    }catch(e){ try{ if(tx) tx.abort(); }catch(_){} reject(e); }
+    }catch(e){finish(reject,e);try{if(tx)tx.abort();}catch(_){} }
   });
 }
 function sessionRange(sid){ return IDBKeyRange.bound([sid,-Infinity],[sid,Infinity]); }
@@ -476,17 +504,22 @@ function handleIdbError(e){
   showCaptureFailure();
   if(recording) void stop("storage_failure");
 }
+let chunkFailureSessionId="";
 function flushPending(){
-  if(pendingLen===0) return chunkWrites;
-  const merged=new Int16Array(pendingLen); let offset=0;
-  for(const c of pendingI16){ merged.set(c,offset); offset+=c.length; }
-  pendingI16=[]; pendingLen=0;
+  if(pendingLen===0)return chunkWrites;
+  const merged=new Int16Array(pendingLen);let offset=0;
+  for(const c of pendingI16){merged.set(c,offset);offset+=c.length;}
+  // Clear originals only after the bounded merged chunk has been constructed successfully.
+  pendingI16=[];pendingLen=0;
   const chunk={sessionId,seq:chunkSeq++,buf:merged};
   memChunks.push(chunk);
   chunkWrites=chunkWrites.then(async()=>{
-    const db=await dbReady(); if(!db) return;
+    // Stop subsequent queued writes after an error. Recovery gets a contiguous committed
+    // prefix; the complete take remains in memory for atomic save or explicit export.
+    if(chunkFailureSessionId===chunk.sessionId)return;
+    const db=await dbReady();if(!db)throw new Error("Local storage unavailable");
     await idbCommit(db,"chunks",tx=>tx.objectStore("chunks").put(chunk));
-  }).catch(handleIdbError);
+  }).catch(error=>{chunkFailureSessionId=chunk.sessionId;handleIdbError(error);});
   return chunkWrites;
 }
 function wavHeader(numSamples, rate){
@@ -521,8 +554,11 @@ async function acquireWakeLock(){
 }
 function setRecUI(){
   el("recbtn").textContent=(!initReady || captureBusy) ? captureMessage("Aguarde…","Please wait…") : recording ? tt(STR.stop) : tt(STR.rec);
-  el("recbtn").disabled=!initReady || captureBusy || recorderLeaseAllowed===false;
+  el("recbtn").disabled=!initReady || captureBusy || recorderLeaseAllowed===false || storageBlocked || hasUnsafeRecording();
   el("recbtn").classList.toggle("rec",recording);
+  el("retry-capture").hidden=!(typeof hasUnassembledTake==="function" && hasUnassembledTake());
+  el("retry-capture").disabled=captureBusy;
+  el("retry-capture").textContent=tt(STR.retryCapture);
 }
 function toggle(){ if(captureBusy) return; return recording ? stop() : start(); }
 function safeCaptureLabel(value){
@@ -568,6 +604,7 @@ function bindLifecycleEvents(){
     else if(recording&&document.visibilityState==='visible')acquireWakeLock();
   });
   window.addEventListener('pagehide',interrupt);
+  window.addEventListener('beforeunload',beforeUnloadHandler);
   window.addEventListener('pageshow',event=>{
     if(event.persisted){
       recorderLeaseAllowed=false;
@@ -598,6 +635,9 @@ async function releaseCaptureResources(){
 }
 async function start(){
   if(!initReady || recording || captureBusy) return;
+  if(storageBlocked || hasUnsafeRecording()){
+    el("err").textContent=tt(storageBlocked ? STR.storageRequired : STR.unsavedBlocked);return;
+  }
   captureBusy=true;setRecUI();
   const attempt={abandoned:false,cancellers:new Set(),stream:null};
   activeStartup=attempt;
@@ -610,6 +650,7 @@ async function start(){
     if(typeof OzniMetadata==="undefined" || typeof OzniMetadata.collect!=="function")
       throw new Error(captureMessage("Metadados não carregaram. Reconecte à internet e recarregue a página.","Metadata did not load. Reconnect and reload the page."));
     const requestedConstraints={audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false,channelCount:1}};
+    requestDurableStorage();
     // Both permission-sensitive calls happen in the original tap, before ANY await.
     ctx=new (window.AudioContext||window.webkitAudioContext)();
     const contextReady=waitForStartup(ctx.resume(),5000,captureMessage(
@@ -636,11 +677,8 @@ async function start(){
     activeSession={sessionId,rate:recRate,label,name,ts,startedAt,metadata,done:false};
     chunkSeq=0;pendingI16=[];pendingLen=0;memChunks=[];chunkWrites=Promise.resolve();
     const db=await dbReady();
-    if(db) await idbCommit(db,"sessions",tx=>tx.objectStore("sessions").put(activeSession));
-    else {
-      captureFailure=captureMessage("⚠️ Sem armazenamento local. Envie ou baixe antes de fechar a página.",
-        "⚠️ Local storage unavailable. Share or download before closing the page.");showCaptureFailure();
-    }
+    if(!db){storageBlocked=true;throw new Error(tt(STR.storageRequired));}
+    await idbCommit(db,"sessions",tx=>tx.objectStore("sessions").put(activeSession));
     if(attempt.abandoned || recorderLeaseAllowed===false || document.visibilityState==="hidden")
       throw new Error(captureMessage("Inicialização interrompida. Tente novamente com a página aberta.","Startup interrupted. Retry with the page open."));
     source=ctx.createMediaStreamSource(stream);processor=ctx.createScriptProcessor(4096,1,1);
@@ -704,37 +742,75 @@ async function start(){
     captureBusy=false;setRecUI();
   }
 }
+// An emergency snapshot owns PCM until a Blob has been constructed and listed. New
+// capture must be blocked while this exists; a failed allocation must not reset it.
+let unassembledTake=null;
+function hasUnassembledTake(){return unassembledTake!==null;}
+function stageMemoryTake(take){
+  // Reuse PCM views, including the unflushed tail. Do not allocate a merged PCM copy.
+  const views=take.chunks.map((chunk,seq)=>({seq,buf:chunk.buf}));
+  for(const buf of take.pending)views.push({seq:views.length,buf});
+  const {blob,samples}=chunksToWavBlob(views,take.session.rate);
+  const metadata=take.session.metadata ? {...take.session.metadata,captureEnd:{reason:take.reason,
+    endedAt:take.endedAt,capturedSamples:samples,savedSamples:samples,durationSeconds:samples/take.session.rate,
+    interrupted:!["user","duration_limit"].includes(take.reason)}} : null;
+  const rec={id:take.session.sessionId,sessionId:take.session.sessionId,name:take.session.name,blob,
+    dur:samples/take.session.rate,rate:take.session.rate,done:true,ts:take.session.ts,
+    accel:take.accel.slice(),quality:take.quality,metadata,capturedSamples:samples,savedSamples:samples,
+    recovered:false,uploaded:false,persisted:false};
+  recs.unshift(rec);
+  unassembledTake=null; // The immutable Blob now owns the complete audio, even if storage stalls.
+  return rec;
+}
+async function finishStoppedTake(take){
+  let rec=null,cleanup;
+  try{
+    // Calling this removes listeners/stops tracks synchronously; closing the context is bounded.
+    cleanup=Promise.resolve(releaseCaptureResources());cleanup.catch(()=>{});
+    rec=stageMemoryTake(take);
+    renderList();showTakeVerdict(take.quality);
+    // Queue the tail promptly on pagehide; context.close must not delay the last write.
+    // This runs only after assembly succeeds, so emergency PCM references stay unchanged.
+    let finalWrites;
+    try{finalWrites=flushPending();}catch(e){handleIdbError(e);}
+    // The full memory WAV is already exportable while cleanup/disk work settles.
+    await cleanup;
+    await finalWrites;
+    const db=await dbReady();
+    if(!db)throw new Error("Local storage unavailable");
+    await finalizeSession(db,take.session,{...rec,persisted:true});
+    rec.persisted=true;
+    renderList();
+    if(captureFailure)showCaptureFailure();
+    else if(take.reason==="duration_limit")el("err").textContent=captureMessage("Gravação encerrada no limite de 60 segundos.","Recording stopped at the 60-second limit.");
+    else if(take.reason!=="user")el("err").textContent=captureMessage("⚠️ Captura interrompida. O áudio disponível foi recuperado; confira antes de enviar.","⚠️ Capture interrupted. Available audio was recovered; check it before sharing.");
+  }catch(e){
+    handleIdbError(e);
+  }finally{
+    // Synchronous assembly/flush errors still reach cleanup, and preserve any unassembled PCM.
+    try{if(cleanup)await cleanup;else await releaseCaptureResources();}catch(e){handleIdbError(e);}
+    if(rec){memChunks=[];pendingI16=[];pendingLen=0;}
+    if(wakeLock){try{await wakeLock.release();}catch(e){}wakeLock=null;}
+    el("meterbar").style.width="0";el("meter").classList.remove("clip");el("timer").textContent="00:00";
+    captureBusy=false;setRecUI();
+  }
+  return rec!==null;
+}
+async function retryUnassembledTake(){
+  if(captureBusy||recording||!unassembledTake)return false;
+  captureBusy=true;setRecUI();
+  stopPromise=finishStoppedTake(unassembledTake);
+  return stopPromise;
+}
 function stop(reason="user"){
-  if(stopPromise) return stopPromise;
-  if(!recording) return Promise.resolve();
+  if(stopPromise)return stopPromise;
+  if(!recording)return Promise.resolve(false);
   recording=false;captureBusy=true;setRecUI();
-  const session=activeSession,accelSnapshot=accelSamples.slice();
-  const finalWrites=flushPending(); // queue the last batch before pagehide/close can suspend us
   const clipFrac=capturedSamples?clipSamples/capturedSamples:0;
-  const quality={verdict:assessTake(sessionPeak,clipFrac),peak:sessionPeak,clipFrac};
-  stopPromise=(async()=>{
-    try{
-      await releaseCaptureResources();
-      await finalWrites;
-      const {blob,samples}=chunksToWavBlob(memChunks.slice(),session.rate);
-      const metadata=session.metadata ? {...session.metadata,captureEnd:{reason,endedAt:new Date().toISOString(),
-        capturedSamples:samples,savedSamples:samples,durationSeconds:samples/session.rate,interrupted:!["user","duration_limit"].includes(reason)}} : null;
-      const rec={id:session.sessionId,name:session.name,blob,dur:samples/session.rate,rate:session.rate,
-        done:true,ts:session.ts,accel:accelSnapshot,quality,metadata,capturedSamples:samples,savedSamples:samples,
-        recovered:false,uploaded:false,persisted:false};
-      const db=await dbReady();
-      if(db){try{await finalizeSession(db,session,{...rec,persisted:true});rec.persisted=true;}catch(e){handleIdbError(e);}}
-      recs.unshift(rec);memChunks=[];renderList();showTakeVerdict(quality);
-      if(captureFailure)showCaptureFailure();
-      else if(reason==="duration_limit")el("err").textContent=captureMessage("Gravação encerrada no limite de 60 segundos.","Recording stopped at the 60-second limit.");
-      else if(reason!=="user")el("err").textContent=captureMessage("⚠️ Captura interrompida. O áudio disponível foi recuperado; confira antes de enviar.","⚠️ Capture interrupted. Available audio was recovered; check it before sharing.");
-      el("meterbar").style.width="0";el("meter").classList.remove("clip");el("timer").textContent="00:00";
-    }catch(e){handleIdbError(e);}
-    finally{
-      if(wakeLock){try{await wakeLock.release();}catch(e){}wakeLock=null;}
-      captureBusy=false;setRecUI();
-    }
-  })();
+  // Preserve references first. stageMemoryTake runs before flushPending can change them.
+  unassembledTake={session:activeSession,chunks:memChunks,pending:pendingI16,accel:accelSamples,
+    quality:{verdict:assessTake(sessionPeak,clipFrac),peak:sessionPeak,clipFrac},reason,endedAt:new Date().toISOString()};
+  stopPromise=finishStoppedTake(unassembledTake);
   return stopPromise;
 }
 
@@ -1033,7 +1109,7 @@ function renderList(){
   recs.forEach((r,i)=>{
     const row=document.createElement("div"); row.className="rec";
     const nm=document.createElement("span"); nm.className="nm"; nm.textContent=r.name;
-    const du=document.createElement("span"); du.className="du"; du.textContent=r.dur.toFixed(1)+"s";
+    const du=document.createElement("span"); du.className="du"; du.textContent=r.dur.toFixed(1)+"s · "+(r.blob.size/1000000).toFixed(1)+" MB";
     row.appendChild(nm); row.appendChild(du);
     // Quality verdict travels with the take, so a bad one stays visibly bad in the list.
     const qt = qualityText(r.quality);
@@ -1055,6 +1131,13 @@ function renderList(){
     zipBtn.textContent=tt(cached?.file ? STR.zipFallback : cached && !cached.error ? STR.zipPreparing : STR.zipPrepare);
     zipBtn.disabled=!!(cached && !cached.file && !cached.error);
     zipBtn.onclick=()=>share(i); row.appendChild(zipBtn);
+    if(cached?.file){
+      const backup=document.createElement("button");backup.className="sec";backup.textContent=tt(STR.backup);
+      backup.onclick=()=>{
+        try{downloadFile(cached.file,cached.file.name);el("err").textContent=tt(STR.downloaded);}
+        catch(e){el("err").textContent=tt(STR.zipError);}
+      };row.appendChild(backup);
+    }
     const wavBtn=document.createElement("button"); wavBtn.className="sec"; wavBtn.textContent=tt(STR.wav); wavBtn.onclick=()=>shareWav(i); row.appendChild(wavBtn);
     if(r.accel && r.accel.length){
       const accBtn=document.createElement("button"); accBtn.className="sec";
@@ -1066,6 +1149,10 @@ function renderList(){
     }
     if(r.persisted===false){
       const warning=document.createElement("div"); warning.className="qtip"; warning.textContent=tt(STR.temporary); row.appendChild(warning);
+      const retry=document.createElement("button");retry.className="sec";retry.textContent=tt(STR.retrySave);
+      retry.disabled=captureBusy || !!r.saving;retry.onclick=()=>retrySave(r);row.appendChild(retry);
+    }else if(r.persisted===true){
+      const saved=document.createElement("div");saved.className="qtip";saved.textContent=tt(STR.savedLocal);row.appendChild(saved);
     }
     if(r.integrity?.recovered){
       const warning=document.createElement("div"); warning.className="qtip"; warning.textContent=tt(STR.recoveredTake); row.appendChild(warning);
@@ -1073,6 +1160,7 @@ function renderList(){
       const warning=document.createElement("div"); warning.className="qtip"; warning.textContent=tt(STR.interruptedTake); row.appendChild(warning);
     }
     const del=document.createElement("button"); del.className="sec"; del.textContent=tt(STR.delete);
+    del.disabled=captureBusy || !!r.saving;
     del.onclick=()=>deleteRecording(r); row.appendChild(del);
     list.appendChild(row);
   });
@@ -1164,8 +1252,21 @@ function downloadFile(blob,name){
   setTimeout(()=>URL.revokeObjectURL(url),60000);
 }
 
+async function retrySave(rec){
+  if(captureBusy || rec.saving || recorderLeaseAllowed===false || !recs.includes(rec)) return;
+  rec.saving=true;renderList();
+  try{
+    const db=await dbReady();if(!db)throw new Error(tt(STR.storageRequired));
+    const saved={...rec,persisted:true};delete saved.saving;
+    await finalizeSession(db,{sessionId:rec.sessionId||rec.id},saved);
+    rec.persisted=true;
+    if(!hasUnsafeRecording()){captureFailure="";el("err").textContent=tt(STR.savedLocal);}
+  }catch(e){captureFailure=tt(STR.unsavedBlocked);showCaptureFailure();}
+  finally{rec.saving=false;renderList();setRecUI();}
+}
+
 async function deleteRecording(rec){
-  if(recorderLeaseAllowed===false) return;
+  if(recorderLeaseAllowed===false || captureBusy || rec.saving) return;
   if(!confirm(tt(STR.deleteConfirm))) return;
   try{
     const db=await dbReady();
@@ -1180,7 +1281,7 @@ async function deleteRecording(rec){
         cursor.onsuccess=()=>{const c=cursor.result;if(c){c.delete();c.continue();}};
       }
     });
-    exportCache.delete(rec); recs=recs.filter(r=>r!==rec); renderList();
+    exportCache.delete(rec); recs=recs.filter(r=>r!==rec); renderList();setRecUI();
   }catch(e){el("err").textContent=state.lang==="pt" ? "Não foi possível apagar. Tente de novo." : "Could not delete. Try again.";}
 }
 
@@ -1240,7 +1341,7 @@ render();
 async function init(){
   bindLifecycleEvents();
   if(!await acquireRecorderLease()){setRecUI();return;}
-  const db=await dbReady();if(!db)return;
+  const db=await dbReady();if(!db){storageBlocked=true;captureFailure=tt(STR.storageRequired);showCaptureFailure();return;}
   try{
     const finalized=await idbReq(db.transaction("recordings","readonly").objectStore("recordings").getAll());
     finalized.sort((a,b)=>(b.ts||0)-(a.ts||0));
@@ -1268,7 +1369,7 @@ async function init(){
     renderList();
     if(captureFailure)showCaptureFailure();
     else if(recovered)el("err").textContent=tt(STR.recovered).replace("{n}",recovered);
-  }catch(e){handleIdbError(e);}
+  }catch(e){storageBlocked=true;handleIdbError(e);}
 }
 const initPromise=init().finally(()=>{initReady=true;setRecUI();});
 </script>
