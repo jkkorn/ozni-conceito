@@ -33,4 +33,6 @@ th{color:var(--muted);font-weight:500}
 .legend{display:flex;flex-wrap:wrap;gap:6px 12px;font-size:12px;color:var(--muted)}
 .sw{display:inline-block;width:12px;height:12px;border-radius:3px;vertical-align:-2px;margin-right:4px}
 .hint{position:absolute;left:12px;bottom:12px;background:rgba(14,17,22,.88);border:1px solid var(--line);border-radius:8px;padding:6px 10px;font-size:12.5px;color:var(--muted);max-width:70%}
-@media (max-width:900px){main{grid-template-columns:1fr;height:auto}#stage{height:62vh}aside{border-left:0;border-top:1px solid var(--line)}}
+@media (max-width:900px){main{grid-template-columns:1fr;height:auto}#stage{height:46vh}aside{border-left:0;border-top:1px solid var(--line)}}
+@media (max-width:600px){header{flex-wrap:wrap;gap:6px 8px;padding:8px 10px}header h1{font-size:15px;flex-basis:100%}header .tag,#listen{display:none}header .spacer{display:none}
+  #stage{height:40vh}.hint{position:static;max-width:none;margin:6px 10px;display:block}aside{padding:10px 10px 40px}body{overflow-x:hidden}}
