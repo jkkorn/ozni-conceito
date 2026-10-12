@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Ozni · Simulador de posicionamento</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <h1 id="t-title"></h1><span class="tag" id="t-tag"></span>
+  <span class="spacer"></span>
+  <span class="note" id="listen"></span>
+  <button class="btn" id="sound"></button>
+  <button class="btn" id="lang">EN</button>
+</header>
+<main>
+  <div id="stage"><canvas id="cv"></canvas><div class="hint" id="hint"></div></div>
+  <aside>
+    <h2 id="t-plan"></h2>
+    <div class="row"><select id="layout" class="btn"></select></div>
+
+    <h2 id="t-click"></h2>
+    <div class="row" id="modes"></div>
+    <p class="note" id="spoofHelp"></p>
+
+    <h2 id="t-incident"></h2>
+    <div id="incident"></div>
+    <div class="row" style="margin-top:6px"><button class="btn" id="newIncident"></button></div>
+
+    <h2 id="t-event"></h2>
+    <div id="event" class="note"></div>
+
+    <h2 id="t-phones"></h2>
+    <div class="row">
+      <label class="note" for="k" id="t-k"></label>
+      <input id="k" type="number" min="2" max="8" value="4" class="btn" style="width:64px">
+      <button class="btn primary" id="suggest"></button>
+      <button class="btn" id="clear"></button>
+    </div>
+    <div class="row"><label class="note" for="newModelSel" id="t-newModel"></label><select id="newModelSel" class="btn"></select></div>
+    <div class="note" id="t-selected" style="margin-top:8px"></div>
+    <div id="phonecard"></div>
+
+    <h2 id="t-map"></h2>
+    <div class="row" id="layers"></div>
+    <div class="legend" id="legend"></div>
+    <h2 id="t-materials"></h2>
+    <div class="legend" id="matLegend"></div>
+
+    <h2 id="t-cov"></h2>
+    <div class="stats" id="stats"></div>
+
+    <h2 id="t-params"></h2>
+    <div id="sliders"></div>
+
+    <h2 id="t-honest"></h2>
+    <p class="note" id="t-honesttext"></p>
+  </aside>
+</main>
+<script src="i18n.js"></script>
+<script src="layouts.js"></script>
+<script src="model.js"></script>
+<script src="audio.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
